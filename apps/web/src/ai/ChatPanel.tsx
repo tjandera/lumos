@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { fetchAiStatus, type AiStatus } from "./aiClient";
 import { SUGGESTED_PROMPTS, useAiChatStore } from "./chatStore";
 
 const panelFont: React.CSSProperties = { fontFamily: "sans-serif" };
@@ -18,6 +19,18 @@ export function ChatPanel() {
   const sendMessage = useAiChatStore((s) => s.sendMessage);
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Best-effort probe of `GET /ai/status` so the empty state can be honest
+  // about whether replies come from a real LLM or the built-in offline mock
+  // (the assistant is on by default, but with no `AI_PROVIDER_BASE_URL`
+  // configured the API falls back to `MockProvider`). Failure just leaves
+  // this `null` and the empty state omits the note.
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchAiStatus(controller.signal).then(setAiStatus);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -77,7 +90,10 @@ export function ChatPanel() {
         {messages.length === 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <p style={{ fontSize: 12, color: "#666", margin: "0 0 4px" }}>
-              Ask me to arrange furniture, suggest a layout, or check what fits.
+              Try: “suggest a cozy living room layout”.
+              {aiStatus?.provider === "mock"
+                ? " Without an AI key configured, I use built-in arrangement logic — no LLM calls, works fully offline."
+                : " Ask me to arrange furniture, suggest a layout, or check what fits."}
             </p>
             {SUGGESTED_PROMPTS.map((prompt) => (
               <button

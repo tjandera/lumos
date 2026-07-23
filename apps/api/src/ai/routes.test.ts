@@ -58,7 +58,7 @@ describe("POST /ai/chat", () => {
     app = undefined;
   });
 
-  it("404s when FEATURE_AI is off", async () => {
+  it("404s when FEATURE_AI is explicitly turned off", async () => {
     app = await buildApp({ logger: false, storage: unusedStorage(), featureAi: false });
     const res = await app.inject({
       method: "POST",
@@ -66,6 +66,16 @@ describe("POST /ai/chat", () => {
       payload: { document: createEmptyDocument(), userMessage: "hello" }
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("is registered by default (FEATURE_AI defaults to on, MockProvider with no env config)", async () => {
+    app = await buildApp({ logger: false, storage: unusedStorage() });
+    const res = await app.inject({
+      method: "POST",
+      url: "/ai/chat",
+      payload: { document: createEmptyDocument(), userMessage: "hello" }
+    });
+    expect(res.statusCode).not.toBe(404);
   });
 
   it("streams a TurnEvent SSE sequence ending in `done` with MockProvider", async () => {
@@ -150,5 +160,44 @@ describe("POST /ai/chat", () => {
     // The heuristic MockProvider answers space/fit questions via querySpace,
     // grounding the answer in real room/catalog facts rather than inventing one.
     expect(toolResults.some((r) => r.toolName === "querySpace")).toBe(true);
+  });
+});
+
+describe("GET /ai/status", () => {
+  let app: FastifyInstance | undefined;
+
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
+
+  it("reports enabled + mock provider by default (no env config)", async () => {
+    app = await buildApp({ logger: false, storage: unusedStorage() });
+    const res = await app.inject({ method: "GET", url: "/ai/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: true, provider: "mock" });
+  });
+
+  it("reports disabled (provider: null) when FEATURE_AI is explicitly off", async () => {
+    app = await buildApp({ logger: false, storage: unusedStorage(), featureAi: false });
+    const res = await app.inject({ method: "GET", url: "/ai/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: false, provider: null });
+  });
+
+  it("reports the injected non-mock provider as 'llm'", async () => {
+    app = await buildApp({ logger: false, storage: unusedStorage(), featureAi: true, aiProvider: new MockProvider() });
+    const res = await app.inject({ method: "GET", url: "/ai/status" });
+    expect(res.statusCode).toBe(200);
+    // The test double is still a MockProvider instance, so it reports "mock" —
+    // this asserts the route reads the *actual* provider's class, not just
+    // "was something injected".
+    expect(res.json()).toEqual({ enabled: true, provider: "mock" });
+  });
+
+  it("is available even when FEATURE_AI is off (status endpoint is never gated)", async () => {
+    app = await buildApp({ logger: false, storage: unusedStorage(), featureAi: false });
+    const res = await app.inject({ method: "GET", url: "/ai/status" });
+    expect(res.statusCode).toBe(200);
   });
 });

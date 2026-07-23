@@ -131,7 +131,7 @@ export function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100vw", height: "100vh" }}>
-      <Onboarding />
+      <Onboarding activeTab={tab} onTabChange={setTab} />
       <header
         style={{
           display: "flex",

@@ -37,6 +37,34 @@ export class AiChatError extends Error {
   }
 }
 
+export interface AiStatus {
+  enabled: boolean;
+  provider: "mock" | "llm" | null;
+}
+
+/**
+ * `GET /ai/status` — lets the web app tell "assistant off", "assistant on
+ * with the offline mock" and "assistant on with a real LLM" apart without
+ * probing `/ai/chat` itself. Best-effort: any failure (API down, CORS,
+ * older API build without the route) is treated as "unknown" (`null`)
+ * rather than thrown, since this only drives an informational note in the
+ * chat empty-state, never a hard error.
+ */
+export async function fetchAiStatus(signal?: AbortSignal): Promise<AiStatus | null> {
+  try {
+    const response = await fetch(`${BASE_URL}/ai/status`, signal ? { signal } : undefined);
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    if (!body || typeof body !== "object") return null;
+    const { enabled, provider } = body as { enabled?: unknown; provider?: unknown };
+    if (typeof enabled !== "boolean") return null;
+    if (provider !== "mock" && provider !== "llm" && provider !== null) return null;
+    return { enabled, provider };
+  } catch {
+    return null;
+  }
+}
+
 export async function* streamChat(input: StreamChatInput): AsyncGenerator<ClientTurnEvent> {
   let response: Response;
   try {

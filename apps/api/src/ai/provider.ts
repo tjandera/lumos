@@ -1,16 +1,27 @@
 /**
  * AI provider selection for the server-side chat proxy.
  *
- * Dev-friendly by default: with no env config at all, `FEATURE_AI=true`
- * still works end-to-end against `MockProvider` (deterministic, offline). If
+ * On by default: with no env config at all, the assistant is enabled and
+ * runs end-to-end against `MockProvider` (deterministic, offline heuristic
+ * responder — no network calls, no API key). Set `FEATURE_AI=false` (or
+ * `0`) to explicitly turn the assistant off (route 404s). If
  * `AI_PROVIDER_BASE_URL` + `AI_MODEL` are both set, requests go to that
- * OpenAI-compatible endpoint instead (optionally with `AI_PROVIDER_API_KEY`).
+ * real OpenAI-compatible endpoint instead (optionally with
+ * `AI_PROVIDER_API_KEY`) — a real LLM always requires explicit env config,
+ * on-by-default only ever gets you the offline mock.
  */
 
 import { MockProvider, OpenAICompatProvider, openAICompatConfigFromEnv, OpenAIResponsesProvider, type ChatProvider } from "@interior/ai";
 
+/** Defaults to enabled; only an explicit `"false"`/`"0"` turns it off. */
 export function isFeatureAiEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.FEATURE_AI === "true" || env.FEATURE_AI === "1";
+  if (env.FEATURE_AI === "false" || env.FEATURE_AI === "0") return false;
+  return true;
+}
+
+/** `"mock"` when no real provider is configured (the default), else `"llm"`. */
+export function aiProviderKind(env: Record<string, string | undefined> = process.env): "mock" | "llm" {
+  return isOfficialOpenAiResponsesConfig(env) || (env.AI_PROVIDER_BASE_URL && env.AI_MODEL) ? "llm" : "mock";
 }
 
 export function isOfficialOpenAiResponsesConfig(env: Record<string, string | undefined>): boolean {

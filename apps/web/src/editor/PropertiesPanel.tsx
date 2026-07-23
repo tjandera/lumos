@@ -3,29 +3,35 @@ import { useSceneStore } from "../store/sceneStore";
 
 function NumberField({
   label,
+  hint,
   value,
   step = 0.01,
   onChange
 }: {
   label: string;
+  /** Optional plain-language one-liner shown under the field (e.g. a typical value). */
+  hint?: string;
   value: number;
   step?: number;
   onChange: (value: number) => void;
 }) {
   return (
-    <label style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, marginBottom: 6 }}>
-      <span>{label}</span>
-      <input
-        type="number"
-        step={step}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => {
-          const n = Number.parseFloat(e.target.value);
-          if (!Number.isNaN(n)) onChange(n);
-        }}
-        style={{ width: 90 }}
-      />
-    </label>
+    <div style={{ marginBottom: 6 }}>
+      <label style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
+        <span>{label}</span>
+        <input
+          type="number"
+          step={step}
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => {
+            const n = Number.parseFloat(e.target.value);
+            if (!Number.isNaN(n)) onChange(n);
+          }}
+          style={{ width: 90 }}
+        />
+      </label>
+      {hint && <div style={{ fontSize: 10.5, color: "#888", marginTop: 2 }}>{hint}</div>}
+    </div>
   );
 }
 
@@ -80,12 +86,14 @@ export function PropertiesPanel() {
           <div style={{ marginBottom: 6, color: "#666" }}>{room.name}</div>
           <NumberField
             label="Wall thickness (m)"
+            hint="15 cm is typical"
             value={room.wallThickness}
             step={0.01}
             onChange={(v) => setActiveRoomWallThickness(room!.id, Math.max(0.01, v))}
           />
           <NumberField
-            label="Room height (m)"
+            label="Ceiling height (m)"
+            hint="2.4–2.7 m is typical"
             value={room.height}
             step={0.05}
             onChange={(v) => setActiveRoomHeight(room!.id, Math.max(0.5, v))}
@@ -133,7 +141,15 @@ export function PropertiesPanel() {
       )}
 
       {selection.type === "none" && !room && (
-        <p style={{ color: "#888" }}>Select a wall vertex, window, or door to edit its properties.</p>
+        <div style={{ color: "#888" }}>
+          <p style={{ marginTop: 0 }}>Nothing selected yet.</p>
+          <p style={{ marginBottom: 6, fontWeight: 600, color: "#666" }}>What to do next:</p>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+            <li>Click a corner of a wall to edit that point</li>
+            <li>Click a window or door to resize or move it</li>
+            <li>Click inside a room to edit its wall thickness and ceiling height</li>
+          </ul>
+        </div>
       )}
     </div>
   );

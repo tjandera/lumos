@@ -16,13 +16,10 @@ import { getCatalog, isNetworkError } from "../api/client";
 import { FURNITURE_CATEGORIES, getLiveCatalog, reconcileCatalog, type CatalogItem } from "../catalog/catalogData";
 import { classifyFit } from "../catalog/fitStatus";
 import { useSceneStore } from "../store/sceneStore";
+import { formatDimsFull, formatDimsPlain } from "../components/ui/format";
 
 /** MIME-ish key used to carry the catalog id through an HTML5 drag. */
 export const CATALOG_DND_TYPE = "application/x-interior-catalog-id";
-
-function formatDims(d: CatalogItem["dimensions"]): string {
-  return `${d.w.toFixed(2)} × ${d.d.toFixed(2)} × ${d.h.toFixed(2)} m`;
-}
 
 function labelForCategory(id: string): string {
   return FURNITURE_CATEGORIES.find((c) => c.id === id)?.label ?? id.charAt(0).toUpperCase() + id.slice(1);
@@ -172,6 +169,11 @@ export function CatalogPanel() {
           />
           Fits my room
         </label>
+        <div style={{ fontSize: 10.5, color: "#999", marginTop: 3 }}>
+          {targetRoom && bbox
+            ? "Only show items that fit your drawn room, with some space to walk around."
+            : "Draw a room first to filter by what fits."}
+        </div>
       </div>
 
       <div style={{ overflowY: "auto", flex: 1, padding: 8 }}>
@@ -193,7 +195,7 @@ export function CatalogPanel() {
                     e.dataTransfer.effectAllowed = "copy";
                   }}
                   onClick={() => addFurnitureItem(item.id)}
-                  title={`Add ${item.name} — ${formatDims(item.dimensions)}${item.description ? `\n${item.description}` : ""}`}
+                  title={`Add ${item.name} — ${formatDimsFull(item.dimensions)}${item.description ? `\n${item.description}` : ""}`}
                   style={{
                     display: "flex",
                     width: "100%",
@@ -221,7 +223,7 @@ export function CatalogPanel() {
                   />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontWeight: 500 }}>{item.name}</span>
-                    <span style={{ display: "block", color: "#999", fontSize: 11 }}>{formatDims(item.dimensions)}</span>
+                    <span style={{ display: "block", color: "#999", fontSize: 11 }}>{formatDimsPlain(item.dimensions)}</span>
                     {bbox && (() => {
                       const fit = classifyFit(bbox, item.dimensions);
                       let bg = "#ffebee";
@@ -253,7 +255,25 @@ export function CatalogPanel() {
             </div>
           );
         })}
-        {filtered.length === 0 && <p style={{ color: "#999", padding: 8 }}>No items match “{query}”.</p>}
+        {filtered.length === 0 && (
+          <div style={{ color: "#999", padding: 8 }}>
+            {query.trim() !== "" ? (
+              <>
+                <p style={{ margin: "0 0 4px" }}>No items match "{query}".</p>
+                <p style={{ margin: 0, fontSize: 12 }}>
+                  Try a different word, or {fitsRoom && bbox ? 'turn off "Fits my room" to see more options.' : "clear the search."}
+                </p>
+              </>
+            ) : fitsRoom && bbox ? (
+              <>
+                <p style={{ margin: "0 0 4px" }}>Nothing fits this room yet.</p>
+                <p style={{ margin: 0, fontSize: 12 }}>Turn off "Fits my room" above to browse everything.</p>
+              </>
+            ) : (
+              <p style={{ margin: 0 }}>No items found.</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -28,6 +28,7 @@ import { AutoQualityController } from "../perf/AutoQualityController";
 import { Toast } from "../perf/Toast";
 import { markManualQualityOverride } from "../perf/qualityPreference";
 import { DaylightSummary } from "./DaylightSummary";
+import { Collapsible } from "./ui/Collapsible";
 
 const QUALITY_OPTIONS: { value: QualityLevel; label: string }[] = [
   { value: "low", label: "Low (no shadows)" },
@@ -44,6 +45,12 @@ const labelStyle: React.CSSProperties = {
 };
 
 const rowStyle: React.CSSProperties = { marginBottom: 14 };
+
+const helperTextStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#777",
+  marginTop: 2
+};
 
 function radToDeg(rad: number): number {
   return (rad * 180) / Math.PI;
@@ -119,10 +126,11 @@ export function LightingPanel({ lightingMood, onLightingMoodChange }: { lighting
 
       <div style={rowStyle}>
         <label style={labelStyle}>Lighting mood</label>
+        <div style={helperTextStyle}>Quickly styles the whole room's light without changing the time.</div>
         <select
           value={lightingMood}
           onChange={(e) => onLightingMoodChange(e.target.value as any)}
-          style={{ width: "100%", boxSizing: "border-box" }}
+          style={{ width: "100%", boxSizing: "border-box", marginTop: 4 }}
         >
           <option value="natural">Natural daylight</option>
           <option value="warm">Warm evening</option>
@@ -134,12 +142,13 @@ export function LightingPanel({ lightingMood, onLightingMoodChange }: { lighting
         <label style={labelStyle} htmlFor="lp-date">
           Date
         </label>
+        <div style={helperTextStyle}>Sets the sun's path for the day you pick.</div>
         <input
           id="lp-date"
           type="date"
           value={sun.date}
           onChange={(e) => setSunLight({ date: e.target.value })}
-          style={{ width: "100%", boxSizing: "border-box" }}
+          style={{ width: "100%", boxSizing: "border-box", marginTop: 4 }}
         />
       </div>
 
@@ -150,6 +159,7 @@ export function LightingPanel({ lightingMood, onLightingMoodChange }: { lighting
             (sun {elevDeg >= 0 ? `${elevDeg.toFixed(0)}° up` : "below horizon"})
           </span>
         </label>
+        <div style={helperTextStyle}>Drag to see how sunlight moves through your home.</div>
         <input
           id="lp-time"
           type="range"
@@ -178,79 +188,83 @@ export function LightingPanel({ lightingMood, onLightingMoodChange }: { lighting
         </label>
       </div>
 
-      <div style={{ ...rowStyle, display: "flex", gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle} htmlFor="lp-lat">
-            Latitude
+      <Collapsible title="Advanced" advanced>
+        <div style={{ ...rowStyle, display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle} htmlFor="lp-lat">
+              Latitude
+            </label>
+            <input
+              id="lp-lat"
+              type="number"
+              step={0.01}
+              min={-90}
+              max={90}
+              value={sun.latitude}
+              onChange={(e) => setSunLight({ latitude: clampNum(Number(e.target.value), -90, 90) })}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle} htmlFor="lp-lng">
+              Longitude
+            </label>
+            <input
+              id="lp-lng"
+              type="number"
+              step={0.01}
+              min={-180}
+              max={180}
+              value={sun.longitude}
+              onChange={(e) => setSunLight({ longitude: clampNum(Number(e.target.value), -180, 180) })}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+        </div>
+        <div style={helperTextStyle}>Where is this home? Used to compute real sunlight.</div>
+
+        <div style={{ ...rowStyle, marginTop: 14 }}>
+          <label style={labelStyle} htmlFor="lp-north">
+            Plan north offset — {northDeg}°
           </label>
           <input
-            id="lp-lat"
-            type="number"
-            step={0.01}
-            min={-90}
-            max={90}
-            value={sun.latitude}
-            onChange={(e) => setSunLight({ latitude: clampNum(Number(e.target.value), -90, 90) })}
-            style={{ width: "100%", boxSizing: "border-box" }}
+            id="lp-north"
+            type="range"
+            min={0}
+            max={360}
+            step={1}
+            value={((northDeg % 360) + 360) % 360}
+            onChange={(e) => setSunLight({ northOffset: (Number(e.target.value) * Math.PI) / 180 }, { transient: true })}
+            onPointerUp={() => commitSunLight()}
+            onKeyUp={() => commitSunLight()}
+            onBlur={() => commitSunLight()}
+            style={{ width: "100%" }}
           />
+          <div style={{ fontSize: 10, color: "#999" }}>Rotates the plan relative to true north (compass bearing).</div>
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle} htmlFor="lp-lng">
-            Longitude
+
+        <div style={rowStyle}>
+          <label style={labelStyle} htmlFor="lp-quality">
+            Quality preset
           </label>
-          <input
-            id="lp-lng"
-            type="number"
-            step={0.01}
-            min={-180}
-            max={180}
-            value={sun.longitude}
-            onChange={(e) => setSunLight({ longitude: clampNum(Number(e.target.value), -180, 180) })}
-            style={{ width: "100%", boxSizing: "border-box" }}
-          />
+          <div style={helperTextStyle}>Higher quality looks better but renders slower on this device.</div>
+          <select
+            id="lp-quality"
+            value={quality}
+            onChange={(e) => {
+              markManualQualityOverride();
+              setLightingQuality(e.target.value as QualityLevel);
+            }}
+            style={{ width: "100%", boxSizing: "border-box", marginTop: 4 }}
+          >
+            {QUALITY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
-      </div>
-
-      <div style={rowStyle}>
-        <label style={labelStyle} htmlFor="lp-north">
-          Plan north offset — {northDeg}°
-        </label>
-        <input
-          id="lp-north"
-          type="range"
-          min={0}
-          max={360}
-          step={1}
-          value={((northDeg % 360) + 360) % 360}
-          onChange={(e) => setSunLight({ northOffset: (Number(e.target.value) * Math.PI) / 180 }, { transient: true })}
-          onPointerUp={() => commitSunLight()}
-          onKeyUp={() => commitSunLight()}
-          onBlur={() => commitSunLight()}
-          style={{ width: "100%" }}
-        />
-        <div style={{ fontSize: 10, color: "#999" }}>Rotates the plan relative to true north (compass bearing).</div>
-      </div>
-
-      <div style={rowStyle}>
-        <label style={labelStyle} htmlFor="lp-quality">
-          Quality preset
-        </label>
-        <select
-          id="lp-quality"
-          value={quality}
-          onChange={(e) => {
-            markManualQualityOverride();
-            setLightingQuality(e.target.value as QualityLevel);
-          }}
-          style={{ width: "100%", boxSizing: "border-box" }}
-        >
-          {QUALITY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      </Collapsible>
 
       <div style={rowStyle}>
         <label style={labelStyle}>Lamps</label>

@@ -36,6 +36,7 @@ import { setPerfCounters } from "../perf/perfStore";
 import { attachContextLossHandlers, simulateContextLoss } from "../perf/contextLoss";
 import { setContextLost, setSimulateContextLossFn } from "../perf/contextLossStore";
 import { captureError } from "../telemetry/telemetry";
+import { GuidancePanel } from "../guidance/GuidancePanel";
 
 const ROTATE_STEP = Math.PI / 12; // 15° per R press / scroll notch
 const WALL_SNAP_THRESHOLD = 0.15;
@@ -453,6 +454,7 @@ export function Scene3D({ lightingMood = "natural" }: { lightingMood?: "natural"
       </Canvas>
       <PerfHud />
       <ContextLossOverlay />
+      <GuidancePanel />
     </div>
   );
 }

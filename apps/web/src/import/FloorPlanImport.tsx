@@ -79,7 +79,13 @@ export const FloorPlanImport: React.FC<FloorPlanImportProps> = ({ onReady, exist
     
     const mpp = calibrateMetersPerPixel(pixelDistance, distMetres);
     
-    if (mpp !== null && imgRef.current) {
+    if (mpp === null) {
+      setError("Please enter a valid distance in metres (e.g. 3.5)");
+      return;
+    }
+    
+    if (imgRef.current) {
+      setError(null);
       onReady({
         sourceUrl: fileUrl || "",
         fileName,
@@ -117,7 +123,7 @@ export const FloorPlanImport: React.FC<FloorPlanImportProps> = ({ onReady, exist
               onChange={(e) => setDistance(e.target.value)} 
             />
           </label>
-          <button onClick={handleApply}>Use this scale</button>
+          <button type="button" onClick={handleApply}>Use this scale</button>
         </div>
       )}
     </div>

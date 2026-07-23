@@ -54,10 +54,10 @@ export async function aiRoutes(app: FastifyInstance, options: AiRoutesOptions): 
 
     const history = Array.isArray(body.messages) ? body.messages : [];
 
-    // Hand the reply's raw stream to us; Fastify no longer tries to
-    // serialize/send a return value for this request.
+    const currentHeaders = reply.getHeaders() as import("node:http").OutgoingHttpHeaders;
     reply.hijack();
     reply.raw.writeHead(200, {
+      ...currentHeaders,
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",

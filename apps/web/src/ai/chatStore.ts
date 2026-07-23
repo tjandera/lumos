@@ -16,10 +16,10 @@ import { useSceneStore } from "../store/sceneStore";
 import { AiChatError, streamChat } from "./aiClient";
 
 export const SUGGESTED_PROMPTS = [
+  "I'm new to this, can you design a basic living room for me?",
   "Suggest a cozy living-room layout",
-  "Move the sofa under the window",
   "What fits in this corner?",
-  "What sofa fits here under $500?"
+  "I need a sofa under $500, what do you suggest?"
 ];
 
 export type ToolActivityStatus = "running" | "done" | "failed";

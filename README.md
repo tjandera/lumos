@@ -40,10 +40,10 @@ docker compose up --build
 - Web (nginx, static build): http://localhost:8080
 - API (Fastify): http://localhost:3001
 
-By default `docker compose up` also starts a `postgres:16` service and the API connects to it (`DATABASE_URL` is wired automatically — see "Storage backends" below), persisting in the `postgres-data` named volume. The `designs-data` volume (file-backed storage) still exists for the fallback case (`DATABASE_URL=` blank in `.env`). Override any setting via a gitignored `.env` file next to `docker-compose.yml` (see the env var table below) — e.g. to turn the AI assistant on:
+By default `docker compose up` also starts a `postgres:16` service and the API connects to it (`DATABASE_URL` is wired automatically — see "Storage backends" below), persisting in the `postgres-data` named volume. The `designs-data` volume (file-backed storage) still exists for the fallback case (`DATABASE_URL=` blank in `.env`). Override any setting via a gitignored `.env` file next to `docker-compose.yml` (see the env var table below) — e.g. the AI assistant is on by default (offline mock), but to turn it off:
 
 ```
-echo "FEATURE_AI=true" >> .env
+echo "FEATURE_AI=false" >> .env
 docker compose up --build
 ```
 
@@ -57,14 +57,14 @@ docker compose up --build
 | --- | --- | --- | --- |
 | `PORT` | api | `3001` | HTTP port the Fastify server listens on. |
 | `VITE_ORIGIN` | api | `http://localhost:5173` (dev) / `http://localhost:8080` (compose) | CORS allow-origin for the API. |
-| `FEATURE_AI` | api | `false` | `true`/`1` registers `POST /ai/chat`; otherwise it 404s. See "AI assistant" below. |
-| `AI_PROVIDER_BASE_URL` | api | unset | OpenAI-compatible endpoint (OpenAI, Azure, vLLM, LiteLLM, Ollama's shim, ...). With this unset, `FEATURE_AI=true` uses the built-in offline `MockProvider`. |
+| `FEATURE_AI` | api | `true` | On by default — registers `POST /ai/chat` and `GET /ai/status`. Set to `false`/`0` to explicitly disable (`/ai/chat` 404s; `/ai/status` still responds with `{enabled:false,provider:null}`). See "AI assistant" below. |
+| `AI_PROVIDER_BASE_URL` | api | unset | OpenAI-compatible endpoint (OpenAI, Azure, vLLM, LiteLLM, Ollama's shim, ...). With this unset, the assistant runs against the built-in offline `MockProvider` — a real LLM always requires this (+ `AI_MODEL`) explicitly. |
 | `AI_MODEL` | api | unset | Model name for `AI_PROVIDER_BASE_URL`. Required together with it. |
 | `AI_PROVIDER_API_KEY` | api | unset | Optional; omit for keyless local servers. |
 | `SESSION_SECRET` | api | unset | Signing secret for the lightweight session/auth layer backing design ownership (Phase 5a). Set a real random value in any non-local deployment. |
 | `DATABASE_URL` | api | unset | Postgres connection string (e.g. `postgresql://user:pass@host:5432/db`). When set, designs/ownership/share-tokens persist to Postgres instead of the file-backed JSON store; unset (default) keeps the file-backed store. See "Storage backends" below. |
 | `VITE_API_URL` | web (build-time) | `http://localhost:3001` | Baked into the static bundle at build time — the browser's base URL for API calls. For Docker, pass as `--build-arg` / the compose `args:` block, not a runtime env var (a already-built static bundle can't read container env at `docker run` time). |
-| `VITE_FEATURE_AI` | web (build-time) | `false` | Shows/hides the AI "Assistant" drawer. Also build-time; both this and the API's `FEATURE_AI` need to be `true` for the assistant to work end-to-end. |
+| `VITE_FEATURE_AI` | web (build-time) | `true` | Shows/hides the AI "Assistant" drawer. On by default; set to `false`/`0` to hide it. Build-time — both this and the API's `FEATURE_AI` need to stay enabled for the assistant to work end-to-end. |
 | `API_PORT` / `WEB_PORT` | docker-compose | `3001` / `8080` | Host-side published ports. |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | docker-compose | `interior` / `interior` / `interior` | Credentials/db name for the bundled `postgres:16` compose service; also used to build the default `DATABASE_URL` the `api` service connects with. |
 
@@ -81,7 +81,14 @@ docker compose up --build
 
 ## Onboarding & Workflow
 
-First-run users see a short 3-step-through-4-step tour (`apps/web/src/onboarding/`): draw a room in Plan, drop furniture in 3D, scrub the time-of-day slider, save & share. It's gated on `localStorage` (dismiss = seen), and reopenable any time via the floating "?" button in the bottom-left corner.
+First-run users get an interactive "Build your first room" walkthrough (`apps/web/src/onboarding/`), not just static text — each step waits for (and detects) the action it's teaching:
+
+1. **Choose a starting point**: "Start with a sample room" loads a prebuilt 4m x 3.5m living room (walls + a door + a window, no furniture) via `sceneStore.loadDocument`, or "I'll draw my own" shows the Plan-tab coach mark and waits for you to move on.
+2. **Drag in furniture** (auto-switches to the 3D tab): watches `document.furniture.length` for an increase, then shows a congratulatory nudge.
+3. **Try the time-of-day slider**: watches the sun's `time` field for a change, then confirms what you just saw.
+4. **Save & meet the Assistant**: points at Save and the Assistant panel; finishing (or skipping, any step) persists "seen" so it won't show again.
+
+The step machine itself (`onboarding/walkthrough.ts`) is pure/UI-free and unit-tested independent of React. Progress is gated on `localStorage` (finish or skip = seen), and the whole walkthrough is reopenable any time via the floating "?" button in the bottom-left corner.
 
 **Move-in Shopper Workflow:**
 Users can upload a floor plan (PDF or image) to trace over. **Privacy boundary**: Uploaded files remain entirely local to the import session. They are not saved in the scene document, not sent to the server, and not included in share links. 
@@ -94,34 +101,29 @@ Users can upload a floor plan (PDF or image) to trace over. **Privacy boundary**
 - Plan editor: single-finger draw/select/drag and two-finger pinch-to-zoom + pan both work via Pointer Events (`apps/web/src/editor/PlanEditor.tsx`, gesture math in `touchGestures.ts`); `touch-action: none` on the drawing surface stops the page from scrolling while you draw. 3D tab: `OrbitControls`' touch defaults already give one-finger rotate / two-finger dolly+pan, and furniture drag-and-drop uses Pointer Events end-to-end, so it works with touch as-is.
 - The existing perf HUD (`F9` to toggle), frame-time budget, and WebGL context-loss recovery overlay are unchanged — see `apps/web/src/perf/`.
 
-## AI assistant (Phase 4, feature-flagged)
+## AI assistant (Phase 4, feature-flagged, on by default)
 
-The AI assistant is off by default in both the web app and the API — the core loop (draw → furnish → light → share) works fully without it. To enable it:
+The AI assistant is **on by default** in both the web app and the API — the "Assistant" drawer shows in the 3D tab out of the box, and `POST /ai/chat` responds using the built-in offline `MockProvider` (deterministic heuristic responder, zero setup, no network calls, no API key). The core loop (draw → furnish → light → share) also still works fully without it, and the drawer's empty state is upfront about which mode you're in ("Without an AI key configured, I use built-in arrangement logic").
 
-**API** (`apps/api`):
+**Disabling it:**
 
 ```
-FEATURE_AI=true pnpm --filter @interior/api dev
+FEATURE_AI=false pnpm --filter @interior/api dev
+VITE_FEATURE_AI=false pnpm --filter @interior/web dev
 ```
 
-With no other config, the API uses `MockProvider` — a deterministic, offline heuristic responder — so `FEATURE_AI=true` works out of the box with zero setup. The official GPT-5.6 integration uses the Responses API to reliably support typed tools. To configure the official GPT-5.6 assistant, set:
+`FEATURE_AI=false`/`0` on the API removes `POST /ai/chat` entirely (404) — `GET /ai/status` still responds (`{"enabled":false,"provider":null}`) so the web app can tell "off" apart from "on but mocked". `VITE_FEATURE_AI=false`/`0` is a **build-time** Vite env var that hides the drawer client-side; set both to fully turn the feature off end-to-end (either one alone leaves the other side still trying to reach it — the drawer degrades to a graceful in-chat error if the API side is off and the web side isn't, rather than crashing).
+
+**Attaching a real LLM** (instead of the offline mock) — the default-on behavior never does this automatically; it always requires explicit config:
 
 ```bash
-FEATURE_AI=true
+FEATURE_AI=true                                  # already the default; harmless to set explicitly
 AI_PROVIDER_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-5.6-sol
 AI_PROVIDER_API_KEY=sk-...
 VITE_FEATURE_AI=true
 ```
 
-When `FEATURE_AI` is unset/false, `POST /ai/chat` doesn't exist (404) — the route is only registered when the flag is on. The route is also rate-limited per IP (20 requests/minute by default, in-memory).
+The official GPT-5.6 integration (that exact `AI_PROVIDER_BASE_URL` + `AI_MODEL`) routes through the Responses API to reliably support typed tools; any other OpenAI-compatible `AI_PROVIDER_BASE_URL` + `AI_MODEL` (Azure, vLLM, LiteLLM, Ollama's OpenAI shim, ...) uses the Chat Completions-style path instead. `GET /ai/status` reports `{"enabled":true,"provider":"llm"}` once a real provider is configured, vs. `"provider":"mock"` for the default offline responder — that's what the chat panel's empty-state note keys off of. The route is rate-limited per IP (20 requests/minute by default, in-memory).
 
-**Web** (`apps/web`):
-
-```
-VITE_FEATURE_AI=true pnpm --filter @interior/web dev
-```
-
-This is a build-time Vite env var (not read from the API's `FEATURE_AI`) — the two must both be set for the assistant to actually work end-to-end: the web flag shows the "Assistant" drawer in the 3D tab, and the API flag is what makes `POST /ai/chat` respond instead of 404. With the web flag on but the API flag off (or the API unreachable), the assistant drawer still renders — chat requests just fail with a graceful in-chat error message rather than crashing the app.
-
-Neither flag is enabled in any committed `.env` file — set them in your shell or a local (gitignored) `.env.development.local` / `.env.local`.
+No `.env` file is committed with real credentials — set `AI_PROVIDER_API_KEY` etc. in your shell or a local (gitignored) `.env.development.local` / `.env.local`.

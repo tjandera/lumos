@@ -86,7 +86,11 @@ export class OpenAIResponsesProvider implements ChatProvider {
     const response = await this.fetchImpl(url, { method: "POST", headers, body, signal: request.signal });
     if (!response.ok || !response.body) {
       let detail = "<no body>";
-      try { detail = (await response.text()).slice(0, 500); } catch {}
+      try {
+        detail = (await response.text()).slice(0, 500);
+      } catch {
+        /* body unreadable — keep placeholder */
+      }
       throw new Error(`Chat request failed (${response.status}): ${detail}`);
     }
 

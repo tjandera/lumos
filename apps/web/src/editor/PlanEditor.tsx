@@ -393,10 +393,11 @@ export function PlanEditor() {
           fontSize: 13
         }}
       >
-        <button onClick={() => setTool("select")} data-active={tool === "select"}>
+        <button type="button" onClick={() => setTool("select")} data-active={tool === "select"}>
           Select
         </button>
         <button
+          type="button"
           onClick={() => {
             setTool("draw-wall");
           }}
@@ -404,16 +405,16 @@ export function PlanEditor() {
         >
           Draw walls
         </button>
-        <button onClick={() => setTool("add-window")} data-active={tool === "add-window"}>
+        <button type="button" onClick={() => setTool("add-window")} data-active={tool === "add-window"}>
           + Window
         </button>
-        <button onClick={() => setTool("add-door")} data-active={tool === "add-door"}>
+        <button type="button" onClick={() => setTool("add-door")} data-active={tool === "add-door"}>
           + Door
         </button>
-        <button onClick={fitToView}>Fit to view</button>
-        <button onClick={undo}>Undo</button>
-        <button onClick={redo}>Redo</button>
-        <button onClick={() => setShowFloorPlanImport((show) => !show)} aria-expanded={showFloorPlanImport}>
+        <button type="button" onClick={fitToView}>Fit to view</button>
+        <button type="button" onClick={undo}>Undo</button>
+        <button type="button" onClick={redo}>Redo</button>
+        <button type="button" onClick={() => setShowFloorPlanImport((show) => !show)} aria-expanded={showFloorPlanImport}>
           Floor plan
         </button>
         {planReference && (

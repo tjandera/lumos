@@ -66,7 +66,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const app = Fastify({ logger: options.logger ?? true });
 
   await app.register(cors, {
-    origin: options.corsOrigin ?? process.env.VITE_ORIGIN ?? "http://localhost:5173",
+    origin: (origin, cb) => {
+      // Allow any local origin, or fallback to configured origin
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(null, options.corsOrigin ?? process.env.VITE_ORIGIN ?? "http://localhost:5173");
+    },
     // The session cookie (anonymous ownership) and share-link management
     // both ride on cookies, which fetch() only sends/receives cross-origin
     // when both the client passes `credentials: "include"` AND the server
@@ -124,8 +131,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(shareRoutes, { storage, tokens });
 
   const featureAi = options.featureAi ?? isFeatureAiEnabled();
-  if (featureAi) {
-    const provider = options.aiProvider ?? buildAiProvider();
+  const provider = featureAi ? (options.aiProvider ?? buildAiProvider()) : undefined;
+  const providerKind: "mock" | "llm" | null = !featureAi ? null : provider?.constructor.name === "MockProvider" ? "mock" : "llm";
+
+  // `/ai/status` is always registered (regardless of the flag) so the web
+  // app can tell "assistant off" apart from "assistant on, offline mock"
+  // apart from "assistant on, real LLM" without probing `/ai/chat` itself.
+  app.get("/ai/status", async () => {
+    return { enabled: featureAi, provider: providerKind };
+  });
+  if (featureAi && provider) {
     const checkRateLimit = createRateLimiter(options.aiRateLimit);
     await app.register(aiRoutes, { provider, catalog: catalogItems, checkRateLimit });
   }

@@ -3,7 +3,12 @@
  *
  * Flags are sourced from `import.meta.env` (Vite) at module load, with a
  * test/dev override hook (`setFeatureOverride`) that takes precedence over
- * the env-derived value. No UI is wired to this yet — see retrofit backlog.
+ * the env-derived value.
+ *
+ * `ai` defaults to ON (the assistant drawer shows out of the box); set
+ * `VITE_FEATURE_AI=false` at build time to hide it. This only controls the
+ * web-side drawer — whether `POST /ai/chat` actually works still depends on
+ * the API's own `FEATURE_AI` (also on by default, see `apps/api/src/ai/provider.ts`).
  */
 
 export type FeatureName = "ai";
@@ -12,10 +17,13 @@ interface FeatureFlags {
   ai: boolean;
 }
 
-function readBooleanEnv(value: string | boolean | undefined, defaultValue: boolean): boolean {
+/** Defaults to `defaultValue`; only explicit `"false"`/`"0"`/`false` turns it off. Exported for unit tests. */
+export function readBooleanEnv(value: string | boolean | undefined, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
   if (typeof value === "boolean") return value;
-  return value === "true" || value === "1";
+  if (value === "false" || value === "0") return false;
+  if (value === "true" || value === "1") return true;
+  return defaultValue;
 }
 
 function readEnvFlags(): FeatureFlags {
@@ -24,7 +32,7 @@ function readEnvFlags(): FeatureFlags {
   // undefined.
   const env = (import.meta as { env?: Record<string, string | boolean | undefined> }).env ?? {};
   return {
-    ai: readBooleanEnv(env.VITE_FEATURE_AI, false)
+    ai: readBooleanEnv(env.VITE_FEATURE_AI, true)
   };
 }
 
