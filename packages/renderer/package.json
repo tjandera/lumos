@@ -1,0 +1,38 @@
+{
+  "name": "@interior/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@interior/core": "workspace:*",
+    "three": "^0.169.0",
+    "@react-three/postprocessing": "^2.16.3",
+    "postprocessing": "^6.36.0"
+  },
+  "peerDependencies": {
+    "@react-three/fiber": "^8.17.10",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@react-three/fiber": "^8.17.10",
+    "@types/react": "^18.3.11",
+    "@types/three": "^0.169.0",
+    "react": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
