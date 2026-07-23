@@ -72,8 +72,8 @@ export const FloorPlanImport: React.FC<FloorPlanImportProps> = ({ onReady, exist
     let pixelDistance = 100; // Default fallback for tests if clicks not used
     
     if (clicks.length === 2) {
-      const dx = clicks[1].x - clicks[0].x;
-      const dy = clicks[1].y - clicks[0].y;
+      const dx = clicks[1]!.x - clicks[0]!.x;
+      const dy = clicks[1]!.y - clicks[0]!.y;
       pixelDistance = Math.sqrt(dx * dx + dy * dy);
     }
     

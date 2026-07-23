@@ -1,8 +1,13 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
+import React from "react";
 import userEvent from "@testing-library/user-event";
 import { FloorPlanImport } from "./FloorPlanImport";
-import React from "react";
+
+beforeAll(() => {
+  global.URL.createObjectURL = vi.fn(() => "blob:mock");
+  global.URL.revokeObjectURL = vi.fn();
+});
 
 describe("FloorPlanImport", () => {
   test("uploads plan, sets distance, and scales", async () => {

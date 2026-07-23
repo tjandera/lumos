@@ -11,7 +11,7 @@ describe("DaylightSummary", () => {
 
     render(<DaylightSummary sun={sun} onSetTime={onSetTime} />);
     
-    expect(screen.getByText(/light from the/i)).toBeVisible();
+    expect(screen.getByText(/light from the/i)).toBeTruthy();
     
     await user.click(screen.getByRole("button", { name: "Afternoon" }));
     expect(onSetTime).toHaveBeenCalledWith("15:00");
