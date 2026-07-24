@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export type ViewMode = '3d' | 'plan';
 export type SunMode = 'auto' | 'manual';
 export type Quality = 'low' | 'med' | 'high';
+export type Weather = 'clear' | 'hazy' | 'overcast' | 'golden';
 
 interface UiStore {
   /** Which editor is showing: the 3D scene or the 2D floor plan. */
@@ -19,7 +20,6 @@ interface UiStore {
   setTimeMinutes: (m: number) => void;
 
   // --- Lighting ---
-  /** Auto = sun from time + location; Manual = sun from azimuth/elevation. */
   sunMode: SunMode;
   setSunMode: (m: SunMode) => void;
   sunAzimuthDeg: number;
@@ -35,6 +35,26 @@ interface UiStore {
   setQuality: (q: Quality) => void;
   lightingOpen: boolean;
   toggleLighting: () => void;
+
+  // --- Sun study + mood (7B/7C) ---
+  /** Animate the sun across the day. */
+  playing: boolean;
+  togglePlaying: () => void;
+  setPlaying: (v: boolean) => void;
+  /** Overlay summer + winter sun paths. */
+  showSeasons: boolean;
+  toggleSeasons: () => void;
+  weather: Weather;
+  setWeather: (w: Weather) => void;
+  /** Render exposure (ACES tone mapping). */
+  exposure: number;
+  setExposure: (v: number) => void;
+  /** Sun colour temperature: −1 cool → +1 warm. */
+  sunWarmth: number;
+  setSunWarmth: (v: number) => void;
+  /** Solar-exposure heatmap on the floor. */
+  heatmapOn: boolean;
+  toggleHeatmap: () => void;
 }
 
 export const useUiStore = create<UiStore>()((set) => ({
@@ -62,4 +82,18 @@ export const useUiStore = create<UiStore>()((set) => ({
   setQuality: (quality) => set({ quality }),
   lightingOpen: false,
   toggleLighting: () => set((s) => ({ lightingOpen: !s.lightingOpen })),
+
+  playing: false,
+  togglePlaying: () => set((s) => ({ playing: !s.playing })),
+  setPlaying: (playing) => set({ playing }),
+  showSeasons: false,
+  toggleSeasons: () => set((s) => ({ showSeasons: !s.showSeasons })),
+  weather: 'clear',
+  setWeather: (weather) => set({ weather }),
+  exposure: 1,
+  setExposure: (exposure) => set({ exposure }),
+  sunWarmth: 0,
+  setSunWarmth: (sunWarmth) => set({ sunWarmth }),
+  heatmapOn: false,
+  toggleHeatmap: () => set((s) => ({ heatmapOn: !s.heatmapOn })),
 }));

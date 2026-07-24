@@ -80,3 +80,21 @@ export function sunPath(
   }
   return points;
 }
+
+export interface DaylightTimes {
+  sunrise: Date | null;
+  sunset: Date | null;
+  solarNoon: Date;
+  /** Hours of daylight (sunset − sunrise); 0 if the sun never rises that day. */
+  dayLengthHours: number;
+}
+
+/** Sunrise, sunset, solar noon, and day length for a location + date. */
+export function daylightTimes(lat: number, lng: number, date: Date): DaylightTimes {
+  const t = SunCalc.getTimes(date, lat, lng);
+  const valid = (d: Date) => d instanceof Date && !Number.isNaN(d.getTime());
+  const sunrise = valid(t.sunrise) ? t.sunrise : null;
+  const sunset = valid(t.sunset) ? t.sunset : null;
+  const dayLengthHours = sunrise && sunset ? (sunset.getTime() - sunrise.getTime()) / 3_600_000 : 0;
+  return { sunrise, sunset, solarNoon: t.solarNoon, dayLengthHours };
+}

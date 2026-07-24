@@ -1,16 +1,25 @@
-import { useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Sky, Line } from '@react-three/drei';
 import { SceneView } from '@interior/renderer';
 import { sunVector, sunFromAngles, sunPath, type SunPathPoint } from '@interior/core';
 import { useSceneStore } from './store';
-import { useUiStore } from './uiStore';
+import { useUiStore, type Weather } from './uiStore';
 import { useCollidingFurniture } from './collisions';
 import { PerfProbe } from './PerfProbe';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const SHADOW_MAP = { low: 1024, med: 2048, high: 4096 } as const;
 const SUN_DIST = 20;
+
+const WEATHER: Record<Weather, { turbidity: number; rayleigh: number; sunMul: number; ambientMul: number }> = {
+  clear: { turbidity: 6, rayleigh: 1.2, sunMul: 1.0, ambientMul: 1.0 },
+  hazy: { turbidity: 12, rayleigh: 2.2, sunMul: 0.7, ambientMul: 1.35 },
+  overcast: { turbidity: 20, rayleigh: 3.2, sunMul: 0.2, ambientMul: 2.0 },
+  golden: { turbidity: 8, rayleigh: 2.6, sunMul: 1.05, ambientMul: 1.0 },
+};
 
 /** A glowing sun rendered far along the sun direction, so you can see it in the scene. */
 function SunDisc({ x, y, z }: { x: number; y: number; z: number }) {
@@ -29,7 +38,7 @@ function SunDisc({ x, y, z }: { x: number; y: number; z: number }) {
 }
 
 /** The sun's daily track across the sky, with a marker every 2 hours. */
-function SunPath({ pts }: { pts: SunPathPoint[] }) {
+function SunPathLine({ pts }: { pts: SunPathPoint[] }) {
   const linePoints = useMemo(
     () => pts.map((p) => [p.x * SUN_DIST, p.y * SUN_DIST, p.z * SUN_DIST] as [number, number, number]),
     [pts],
@@ -50,6 +59,16 @@ function SunPath({ pts }: { pts: SunPathPoint[] }) {
   );
 }
 
+/** A dashed seasonal sun-path (summer / winter) overlay. */
+function SeasonLine({ pts, color }: { pts: SunPathPoint[]; color: string }) {
+  const p = useMemo(
+    () => pts.map((q) => [q.x * SUN_DIST, q.y * SUN_DIST, q.z * SUN_DIST] as [number, number, number]),
+    [pts],
+  );
+  if (p.length < 2) return null;
+  return <Line points={p} color={color} lineWidth={1.5} transparent opacity={0.45} dashed dashSize={0.5} gapSize={0.35} />;
+}
+
 /** A ground ring with a red arrow pointing to north (+Z per the world convention). */
 function Compass() {
   const r = 3.6;
@@ -67,6 +86,111 @@ function Compass() {
   );
 }
 
+function ToneMapping({ exposure }: { exposure: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.toneMappingExposure = exposure;
+  }, [gl, exposure]);
+  return null;
+}
+
+/** Advances the time-of-day while playing (~48s per full day). */
+function SunAnimator({ enabled }: { enabled: boolean }) {
+  useFrame((_, delta) => {
+    if (!enabled) return;
+    const cur = useUiStore.getState().timeMinutes;
+    useUiStore.getState().setTimeMinutes((cur + delta * 30) % 1440);
+  });
+  return null;
+}
+
+/** Exposure 0 (shade) → 1 (full sun) mapped blue → green → red. */
+function heatColor(e: number): [number, number, number] {
+  const c = new THREE.Color();
+  c.setHSL((1 - e) * 0.66, 0.85, 0.5);
+  return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
+}
+
+/**
+ * On-demand floor heatmap: for a grid of floor cells, raycast toward the sun across the
+ * day's daytime samples and colour each cell by the fraction that reach direct sun
+ * (rays that escape through a window/door or over the walls). Occludes on walls.
+ */
+function SolarStudy({
+  lat,
+  lng,
+  offset,
+  year,
+  month,
+  day,
+  bounds,
+}: {
+  lat: number;
+  lng: number;
+  offset: number;
+  year: number;
+  month: number;
+  day: number;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+}) {
+  const scene = useThree((s) => s.scene);
+  const [tex, setTex] = useState<THREE.DataTexture | null>(null);
+
+  useEffect(() => {
+    const walls: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      if (o.userData && o.userData.isWall) walls.push(o);
+    });
+    const samples = sunPath(lat, lng, new Date(year, month, day), offset, 30).filter((p) => p.y > 0.06);
+    const N = 28;
+    const data = new Uint8Array(N * N * 4);
+    const ray = new THREE.Raycaster();
+    ray.far = 80;
+    const origin = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const spanX = bounds.maxX - bounds.minX;
+    const spanZ = bounds.maxZ - bounds.minZ;
+    for (let iz = 0; iz < N; iz++) {
+      for (let ix = 0; ix < N; ix++) {
+        const wx = bounds.minX + ((ix + 0.5) / N) * spanX;
+        const wz = bounds.minZ + ((iz + 0.5) / N) * spanZ;
+        let lit = 0;
+        for (const s of samples) {
+          origin.set(wx, 0.05, wz);
+          dir.set(s.x, s.y, s.z).normalize();
+          ray.set(origin, dir);
+          if (ray.intersectObjects(walls, true).length === 0) lit++;
+        }
+        const e = samples.length ? lit / samples.length : 0;
+        const [r, g, b] = heatColor(e);
+        const idx = (iz * N + ix) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = Math.round(40 + e * 190);
+      }
+    }
+    const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
+    t.needsUpdate = true;
+    setTex(t);
+    return () => t.dispose();
+  }, [scene, lat, lng, offset, year, month, day, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ]);
+
+  if (!tex) return null;
+  return (
+    <mesh
+      position={[(bounds.minX + bounds.maxX) / 2, 0.04, (bounds.minZ + bounds.maxZ) / 2]}
+      rotation={[-Math.PI / 2, 0, 0]}
+    >
+      <planeGeometry args={[bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ]} />
+      <meshBasicMaterial map={tex} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
+}
+
 export function Scene3D({ active }: { active: boolean }) {
   const doc = useSceneStore((s) => s.doc);
   const cutaway = useUiStore((s) => s.cutaway);
@@ -80,8 +204,23 @@ export function Scene3D({ active }: { active: boolean }) {
   const showSun = useUiStore((s) => s.showSun);
   const showSunPath = useUiStore((s) => s.showSunPath);
   const quality = useUiStore((s) => s.quality);
+  const playing = useUiStore((s) => s.playing);
+  const weather = useUiStore((s) => s.weather);
+  const exposure = useUiStore((s) => s.exposure);
+  const sunWarmth = useUiStore((s) => s.sunWarmth);
+  const showSeasons = useUiStore((s) => s.showSeasons);
+  const heatmapOn = useUiStore((s) => s.heatmapOn);
   const collidingIds = useCollidingFurniture(doc);
   const cam = doc.view.camera;
+
+  const studyBounds = useMemo(() => {
+    const xs: number[] = [];
+    const zs: number[] = [];
+    for (const room of doc.rooms) for (const w of room.walls) { xs.push(w.start.x, w.end.x); zs.push(w.start.z, w.end.z); }
+    if (xs.length === 0) return { minX: -3, maxX: 3, minZ: -3, maxZ: 3 };
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
+  }, [doc.rooms]);
+  const studyDate = useMemo(() => new Date(doc.view.timeOfDay), [doc.view.timeOfDay]);
 
   const sun = useMemo(() => {
     if (sunMode === 'manual') return sunFromAngles(sunAzimuthDeg, sunElevationDeg);
@@ -111,16 +250,34 @@ export function Scene3D({ active }: { active: boolean }) {
     return sunPath(doc.site.lat, doc.site.lng, base, doc.site.trueNorthOffsetDeg, 15);
   }, [sunMode, doc.view.timeOfDay, doc.site.lat, doc.site.lng, doc.site.trueNorthOffsetDeg]);
 
+  const seasons = useMemo(() => {
+    if (!showSeasons || sunMode !== 'auto') return null;
+    const yr = new Date(doc.view.timeOfDay).getFullYear();
+    return {
+      summer: sunPath(doc.site.lat, doc.site.lng, new Date(yr, 5, 21), doc.site.trueNorthOffsetDeg, 20),
+      winter: sunPath(doc.site.lat, doc.site.lng, new Date(yr, 11, 21), doc.site.trueNorthOffsetDeg, 20),
+    };
+  }, [showSeasons, sunMode, doc.view.timeOfDay, doc.site.lat, doc.site.lng, doc.site.trueNorthOffsetDeg]);
+
   const day = clamp01(sun.y * 3);
   const dist = 30;
   const shadowMap = SHADOW_MAP[quality];
+  const wx = WEATHER[weather];
+
+  const effWarm = clamp(sunWarmth + (weather === 'golden' ? 0.4 : 0) + (1 - day) * 0.35, -1, 1);
+  const sunColor = useMemo(() => {
+    const c = new THREE.Color('#fff4e0');
+    if (effWarm >= 0) c.lerp(new THREE.Color('#ffb060'), effWarm);
+    else c.lerp(new THREE.Color('#cfe0ff'), -effWarm);
+    return `#${c.getHexString()}`;
+  }, [effWarm]);
 
   return (
     <Canvas
       frameloop={active ? 'always' : 'never'}
       shadows="soft"
       camera={{ position: [cam.position.x, cam.position.y, cam.position.z], fov: 50 }}
-      gl={{ antialias: true }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       onPointerMissed={() => selectFurniture(null)}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
@@ -133,14 +290,17 @@ export function Scene3D({ active }: { active: boolean }) {
         });
       }}
     >
-      <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={8} rayleigh={day > 0.2 ? 1.2 : 3} />
-      <hemisphereLight intensity={0.18 + day * 0.5} color="#bcd4ff" groundColor="#3a352f" />
-      <ambientLight intensity={0.05 + day * 0.1} />
+      <ToneMapping exposure={exposure} />
+      {sunMode === 'auto' && <SunAnimator enabled={playing} />}
+
+      <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={wx.turbidity} rayleigh={day > 0.2 ? wx.rayleigh : 3} />
+      <hemisphereLight intensity={(0.18 + day * 0.5) * wx.ambientMul} color="#bcd4ff" groundColor="#3a352f" />
+      <ambientLight intensity={(0.05 + day * 0.12) * wx.ambientMul} />
       {sun.y > 0 && (
         <directionalLight
           position={[sun.x * dist, sun.y * dist, sun.z * dist]}
-          intensity={(0.4 + day * 3.2) * sunIntensity}
-          color={day > 0.4 ? '#fff6e6' : '#ffcf9e'}
+          intensity={(0.4 + day * 3.2) * sunIntensity * wx.sunMul}
+          color={sunColor}
           castShadow
           shadow-mapSize={[shadowMap, shadowMap]}
           shadow-bias={-0.0002}
@@ -157,8 +317,25 @@ export function Scene3D({ active }: { active: boolean }) {
       {showSunPath && (
         <>
           <Compass />
-          {sunMode === 'auto' && <SunPath pts={pathPts} />}
+          {sunMode === 'auto' && <SunPathLine pts={pathPts} />}
         </>
+      )}
+      {seasons && (
+        <>
+          <SeasonLine pts={seasons.summer} color="#86efac" />
+          <SeasonLine pts={seasons.winter} color="#93c5fd" />
+        </>
+      )}
+      {heatmapOn && (
+        <SolarStudy
+          lat={doc.site.lat}
+          lng={doc.site.lng}
+          offset={doc.site.trueNorthOffsetDeg}
+          year={studyDate.getFullYear()}
+          month={studyDate.getMonth()}
+          day={studyDate.getDate()}
+          bounds={studyBounds}
+        />
       )}
 
       <SceneView

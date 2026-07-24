@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import {
   DEG2RAD,
   type SceneDocument,
@@ -9,7 +10,7 @@ import {
   type FurnitureInstance,
   type LightInstance,
 } from '@interior/core';
-import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
+import { getCatalogItem, DEFAULT_ITEM, type CatalogItem } from '@interior/catalog';
 import { computeWallShape, buildWallGeometry } from './wallGeometry';
 
 /**
@@ -114,6 +115,7 @@ function WallMesh({
       rotation={[0, rotationY, 0]}
       castShadow
       receiveShadow
+      userData={{ isWall: true }}
     >
       <meshStandardMaterial ref={matRef} color="#efeae2" />
     </mesh>
@@ -143,25 +145,75 @@ function FurnitureBox({
 }) {
   const cat = getCatalogItem(item.catalogId) ?? DEFAULT_ITEM;
   return (
-    <mesh
-      position={[item.position.x, item.position.y + cat.height / 2, item.position.z]}
+    <group
+      position={[item.position.x, item.position.y, item.position.z]}
       rotation={[0, item.rotationY * DEG2RAD, 0]}
       scale={item.scale}
-      castShadow
-      receiveShadow
       onClick={(e) => {
         e.stopPropagation();
         onSelect?.(item.id);
       }}
     >
+      {cat.model ? (
+        <Suspense fallback={<PlaceholderBox cat={cat} />}>
+          <FurnitureModel url={cat.model} targetWidth={cat.width} />
+        </Suspense>
+      ) : (
+        <PlaceholderBox cat={cat} />
+      )}
+      {(selected || colliding) && <HighlightBox cat={cat} colliding={colliding} />}
+    </group>
+  );
+}
+
+/** Colored box — the loading/fallback state and what non-model catalog items use. */
+function PlaceholderBox({ cat }: { cat: CatalogItem }) {
+  return (
+    <mesh position={[0, cat.height / 2, 0]} castShadow receiveShadow>
       <boxGeometry args={[cat.width, cat.height, cat.depth]} />
-      <meshStandardMaterial
-        color={colliding ? '#ef4444' : cat.color}
-        emissive={selected ? '#38bdf8' : '#000000'}
-        emissiveIntensity={selected ? 0.4 : 0}
+      <meshStandardMaterial color={cat.color} />
+    </mesh>
+  );
+}
+
+/** Translucent overlay for selection (blue) / collision (red) — works over any model. */
+function HighlightBox({ cat, colliding }: { cat: CatalogItem; colliding: boolean }) {
+  return (
+    <mesh position={[0, cat.height / 2, 0]}>
+      <boxGeometry args={[cat.width * 1.05, cat.height * 1.05, cat.depth * 1.05]} />
+      <meshBasicMaterial
+        color={colliding ? '#ef4444' : '#38bdf8'}
+        transparent
+        opacity={colliding ? 0.3 : 0.16}
+        depthWrite={false}
       />
     </mesh>
   );
+}
+
+/** Loads a GLB, recenters it to the floor, and uniformly scales it to the catalog width. */
+function FurnitureModel({ url, targetWidth }: { url: string; targetWidth: number }) {
+  const { scene } = useGLTF(url);
+  const object = useMemo(() => {
+    const cloned = scene.clone(true);
+    cloned.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const s = size.x > 1e-4 ? targetWidth / size.x : 1;
+    cloned.position.set(-center.x, -box.min.y, -center.z); // center x/z, base to y = 0
+    const wrapper = new THREE.Group();
+    wrapper.add(cloned);
+    wrapper.scale.setScalar(s);
+    return wrapper;
+  }, [scene, targetWidth]);
+  return <primitive object={object} />;
 }
 
 function Lamp({ light }: { light: LightInstance }) {
