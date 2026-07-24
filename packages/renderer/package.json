@@ -1,0 +1,32 @@
+{
+  "name": "@interior/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.tsx",
+  "module": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "exports": { ".": "./src/index.tsx" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@interior/core": "workspace:*",
+    "@interior/catalog": "workspace:*"
+  },
+  "peerDependencies": {
+    "@react-three/fiber": ">=9",
+    "react": ">=19",
+    "three": ">=0.160"
+  },
+  "devDependencies": {
+    "@react-three/fiber": "^9.0.0",
+    "@types/react": "^19.0.0",
+    "@types/three": "^0.171.0",
+    "react": "^19.0.0",
+    "three": "^0.171.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

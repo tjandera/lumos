@@ -1,0 +1,14 @@
+$ vitest run
+
+ RUN  v2.1.9 /Users/matth/Developer/interior_design/packages/core
+
+ ✓ src/collision.test.ts (4 tests) 2ms
+ ✓ src/autolayout.test.ts (2 tests) 3ms
+ ✓ src/sunlight.test.ts (8 tests) 3ms
+ ✓ src/schema.test.ts (8 tests) 7ms
+
+ Test Files  4 passed (4)
+      Tests  22 passed (22)
+   Start at  13:31:49
+   Duration  366ms (transform 158ms, setup 0ms, collect 219ms, tests 15ms, environment 0ms, prepare 263ms)
+

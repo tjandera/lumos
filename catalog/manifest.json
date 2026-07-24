@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "sofa-2seat",
+      "name": "2-Seat Sofa",
+      "category": "seating",
+      "dimensions": { "width": 1.6, "height": 0.8, "depth": 0.85 },
+      "model": null,
+      "thumbnail": null,
+      "license": { "spdx": "TBD", "source": "TBD", "author": "TBD" }
+    },
+    {
+      "id": "coffee-table",
+      "name": "Coffee Table",
+      "category": "tables",
+      "dimensions": { "width": 1.1, "height": 0.4, "depth": 0.6 },
+      "model": null,
+      "thumbnail": null,
+      "license": { "spdx": "TBD", "source": "TBD", "author": "TBD" }
+    }
+  ]
+}
