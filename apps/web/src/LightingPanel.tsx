@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { daylightTimes } from '@interior/core';
+import { daylightTimes, ROOM_STANDARDS } from '@interior/core';
 import { useUiStore, type Quality, type SunMode, type Weather } from './uiStore';
 import { useSceneStore } from './store';
 
@@ -95,6 +95,12 @@ export function LightingPanel() {
   const setSunWarmth = useUiStore((s) => s.setSunWarmth);
   const heatmapOn = useUiStore((s) => s.heatmapOn);
   const toggleHeatmap = useUiStore((s) => s.toggleHeatmap);
+  const luxOn = useUiStore((s) => s.luxOn);
+  const toggleLux = useUiStore((s) => s.toggleLux);
+  const avgLux = useUiStore((s) => s.avgLux);
+  const roomStandardId = useUiStore((s) => s.roomStandardId);
+  const setRoomStandardId = useUiStore((s) => s.setRoomStandardId);
+  const standardLux = ROOM_STANDARDS.find((r) => r.id === roomStandardId)?.targetLux ?? 150;
 
   const doc = useSceneStore((s) => s.doc);
   const edit = useSceneStore((s) => s.edit);
@@ -262,6 +268,40 @@ export function LightingPanel() {
           shade → full sun
         </div>
       )}
+
+      <Section title="Analysis">
+        <label className="flex items-center gap-2 text-xs text-white/60">
+          <input type="checkbox" checked={luxOn} onChange={toggleLux} />
+          Illuminance heatmap (lux)
+        </label>
+        {luxOn && (
+          <div className="mt-2">
+            <div className="flex items-center gap-1 text-[10px] text-white/40">
+              <span
+                className="h-2 w-8 rounded"
+                style={{ background: 'linear-gradient(90deg,#3b82f6,#22c55e,#eab308,#ef4444)' }}
+              />
+              dim → bright
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {ROOM_STANDARDS.map((r) => (
+                <button key={r.id} className={chip(roomStandardId === r.id)} onClick={() => setRoomStandardId(r.id)}>
+                  {r.name}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 text-xs">
+              <div className="text-white/60">
+                Baseline <span className="font-mono text-white/85">{avgLux} lx</span>{' '}
+                <span className="text-white/35">(no direct sun)</span>
+              </div>
+              <div className={avgLux >= standardLux ? 'text-emerald-300' : 'text-amber-300'}>
+                {avgLux >= standardLux ? '✓ meets' : '✗ below'} ~{standardLux} lx
+              </div>
+            </div>
+          </div>
+        )}
+      </Section>
 
       <Section title="Interior lamps">
         <button className={chip(false)} onClick={addLamp}>

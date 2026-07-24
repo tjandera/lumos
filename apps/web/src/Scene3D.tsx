@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Sky, Line } from '@react-three/drei';
 import { SceneView } from '@interior/renderer';
-import { sunVector, sunFromAngles, sunPath, type SunPathPoint } from '@interior/core';
+import { sunVector, sunFromAngles, sunPath, illuminanceAt, type SunPathPoint, type LampSample } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { useCollidingFurniture } from './collisions';
@@ -191,6 +191,85 @@ function SolarStudy({
   );
 }
 
+/**
+ * Illuminance (lux) heatmap at the current instant: sun (if a cell sees it) + ambient
+ * sky + all lamps, via the pure `illuminanceAt`. Reports the average *baseline* lux
+ * (ambient + lamps, no transient sunbeam) for the "bright enough?" check.
+ */
+function LuxStudy({
+  sun,
+  lamps,
+  lampsKey,
+  skyLux,
+  bounds,
+  onAvg,
+}: {
+  sun: { x: number; y: number; z: number };
+  lamps: LampSample[];
+  lampsKey: string;
+  skyLux: number;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  onAvg: (v: number) => void;
+}) {
+  const scene = useThree((s) => s.scene);
+  const [tex, setTex] = useState<THREE.DataTexture | null>(null);
+
+  useEffect(() => {
+    const walls: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      if (o.userData && o.userData.isWall) walls.push(o);
+    });
+    const N = 28;
+    const data = new Uint8Array(N * N * 4);
+    const ray = new THREE.Raycaster();
+    ray.far = 80;
+    const sunDir = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
+    const origin = new THREE.Vector3();
+    const spanX = bounds.maxX - bounds.minX;
+    const spanZ = bounds.maxZ - bounds.minZ;
+    let baselineSum = 0;
+    for (let iz = 0; iz < N; iz++) {
+      for (let ix = 0; ix < N; ix++) {
+        const wx = bounds.minX + ((ix + 0.5) / N) * spanX;
+        const wz = bounds.minZ + ((iz + 0.5) / N) * spanZ;
+        let sunLit = false;
+        if (sun.y > 0.02) {
+          origin.set(wx, 0.05, wz);
+          ray.set(origin, sunDir);
+          sunLit = ray.intersectObjects(walls, true).length === 0;
+        }
+        const total = illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: Math.max(0, sun.y), sunLit, lamps, skyLux });
+        baselineSum += illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: 0, sunLit: false, lamps, skyLux });
+        const e = Math.min(1, total / 1200);
+        const [r, g, b] = heatColor(e);
+        const idx = (iz * N + ix) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = Math.round(60 + e * 170);
+      }
+    }
+    const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
+    t.needsUpdate = true;
+    setTex(t);
+    onAvg(Math.round(baselineSum / (N * N)));
+    return () => t.dispose();
+  }, [scene, sun.x, sun.y, sun.z, lampsKey, skyLux, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, onAvg]);
+
+  if (!tex) return null;
+  return (
+    <mesh
+      position={[(bounds.minX + bounds.maxX) / 2, 0.045, (bounds.minZ + bounds.maxZ) / 2]}
+      rotation={[-Math.PI / 2, 0, 0]}
+    >
+      <planeGeometry args={[bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ]} />
+      <meshBasicMaterial map={tex} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
+}
+
 export function Scene3D({ active }: { active: boolean }) {
   const doc = useSceneStore((s) => s.doc);
   const cutaway = useUiStore((s) => s.cutaway);
@@ -210,8 +289,20 @@ export function Scene3D({ active }: { active: boolean }) {
   const sunWarmth = useUiStore((s) => s.sunWarmth);
   const showSeasons = useUiStore((s) => s.showSeasons);
   const heatmapOn = useUiStore((s) => s.heatmapOn);
+  const luxOn = useUiStore((s) => s.luxOn);
+  const setAvgLux = useUiStore((s) => s.setAvgLux);
   const collidingIds = useCollidingFurniture(doc);
   const cam = doc.view.camera;
+
+  const lampSamples = useMemo<LampSample[]>(
+    () =>
+      doc.lights.map((l) => ({ x: l.position.x, y: l.position.y, z: l.position.z, intensityCandela: l.intensityCandela })),
+    [doc.lights],
+  );
+  const lampsKey = useMemo(
+    () => lampSamples.map((l) => `${l.x},${l.y},${l.z},${l.intensityCandela}`).join('|'),
+    [lampSamples],
+  );
 
   const studyBounds = useMemo(() => {
     const xs: number[] = [];
@@ -335,6 +426,16 @@ export function Scene3D({ active }: { active: boolean }) {
           month={studyDate.getMonth()}
           day={studyDate.getDate()}
           bounds={studyBounds}
+        />
+      )}
+      {luxOn && (
+        <LuxStudy
+          sun={sun}
+          lamps={lampSamples}
+          lampsKey={lampsKey}
+          skyLux={Math.max(0, sun.y) * 2500}
+          bounds={studyBounds}
+          onAvg={setAvgLux}
         />
       )}
 

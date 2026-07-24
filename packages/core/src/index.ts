@@ -6,4 +6,5 @@ export * from './flags';
 export * from './collision';
 export * from './autolayout';
 export * from './sunlight';
+export * from './illuminance';
 export * from './sample';

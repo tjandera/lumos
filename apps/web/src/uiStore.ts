@@ -55,6 +55,13 @@ interface UiStore {
   /** Solar-exposure heatmap on the floor. */
   heatmapOn: boolean;
   toggleHeatmap: () => void;
+  /** Illuminance (lux) heatmap + analysis. */
+  luxOn: boolean;
+  toggleLux: () => void;
+  avgLux: number;
+  setAvgLux: (v: number) => void;
+  roomStandardId: string;
+  setRoomStandardId: (id: string) => void;
 }
 
 export const useUiStore = create<UiStore>()((set) => ({
@@ -96,4 +103,10 @@ export const useUiStore = create<UiStore>()((set) => ({
   setSunWarmth: (sunWarmth) => set({ sunWarmth }),
   heatmapOn: false,
   toggleHeatmap: () => set((s) => ({ heatmapOn: !s.heatmapOn })),
+  luxOn: false,
+  toggleLux: () => set((s) => ({ luxOn: !s.luxOn })),
+  avgLux: 0,
+  setAvgLux: (avgLux) => set({ avgLux }),
+  roomStandardId: 'living',
+  setRoomStandardId: (roomStandardId) => set({ roomStandardId }),
 }));
