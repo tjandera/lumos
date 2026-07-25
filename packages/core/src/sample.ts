@@ -12,7 +12,11 @@ function rectWalls(w: number, d: number, height: number, thickness: number) {
   ];
 }
 
-/** A simple 5m × 4m room with a couple of furniture placeholders and a lamp. */
+/**
+ * A simple 5m × 4m room with a couple of furniture placeholders. No lights are
+ * pre-placed — fixtures are something the user adds deliberately (Lighting panel's
+ * + Ceiling/Wall/Floor/Table buttons), not a default that's always sitting there.
+ */
 export const sampleScene: SceneDocument = {
   schemaVersion: 5,
   id: 'sample-studio',
@@ -54,19 +58,7 @@ export const sampleScene: SceneDocument = {
     { id: 'f-sofa', catalogId: 'sofa-2seat', position: { x: 0, y: 0, z: -1.3 }, rotationY: 0, scale: 1 },
     { id: 'f-table', catalogId: 'coffee-table', position: { x: 0, y: 0, z: -0.2 }, rotationY: 0, scale: 1 },
   ],
-  lights: [
-    {
-      id: 'lamp-1',
-      kind: 'table',
-      position: { x: 1.6, y: 0.75, z: -1.6 },
-      intensityCandela: 200,
-      color: '#ffab5c',
-      kelvin: 2700,
-      on: true,
-      castShadow: true,
-      auto: false,
-    },
-  ],
+  lights: [],
   lightingScenes: [],
   view: {
     timeOfDay: '2026-06-21T16:00:00',
