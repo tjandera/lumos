@@ -7,4 +7,5 @@ export * from './collision';
 export * from './autolayout';
 export * from './sunlight';
 export * from './illuminance';
+export * from './color';
 export * from './sample';

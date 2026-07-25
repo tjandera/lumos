@@ -22,6 +22,23 @@ const migrators: Record<number, Migrator> = {
       },
     };
   },
+
+  // v2 -> v3: lights gain a fixture `kind` (mount + model), `kelvin` (colour
+  // temperature, kept in sync with the existing `color` hex), `on`, and `castShadow`/
+  // `auto`. Every v2 light was rendered as a small warm table lamp, so that's the
+  // safe default. The document also gains `lightingScenes` (saved presets), empty.
+  2: (doc) => {
+    const rest = doc as { lights?: Array<Record<string, unknown>> };
+    const lights = (rest.lights ?? []).map((l) => ({
+      ...l, // preserve id/position/intensityCandela/color as-is
+      kind: 'table', // v2's `kind` was always the literal 'lamp' — not a valid v3 FixtureKind
+      kelvin: (l.kelvin as number | undefined) ?? 2700,
+      on: (l.on as boolean | undefined) ?? true,
+      castShadow: (l.castShadow as boolean | undefined) ?? true,
+      auto: (l.auto as boolean | undefined) ?? false,
+    }));
+    return { ...doc, schemaVersion: 3, lights, lightingScenes: [] };
+  },
 };
 
 /**

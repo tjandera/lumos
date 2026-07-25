@@ -5,7 +5,7 @@ import { z } from 'zod';
  * migrations.ts keyed by the version it upgrades FROM. Saved and shared designs
  * are validated + migrated on load, so they survive schema evolution.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 const Vec2Schema = z.object({ x: z.number(), z: z.number() }); // ground-plane point (meters)
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
@@ -42,12 +42,35 @@ export const FurnitureInstanceSchema = z.object({
   scale: z.number().positive().default(1),
 });
 
+/** Which real fixture this light is + how it mounts (ceiling/wall vs floor/table). */
+export const FixtureKindSchema = z.enum(['ceiling', 'wall', 'floor', 'table']);
+
 export const LightInstanceSchema = z.object({
   id: z.string(),
-  kind: z.literal('lamp'),
+  kind: FixtureKindSchema.default('table'),
   position: Vec3Schema,
   intensityCandela: z.number().nonnegative(),
-  color: z.string(), // hex, e.g. "#ffe6b0"
+  color: z.string(), // hex, e.g. "#ffe6b0" — kept in sync with `kelvin` by the UI
+  kelvin: z.number().min(1000).max(10000).default(2700),
+  on: z.boolean().default(true),
+  castShadow: z.boolean().default(true),
+  /** Auto-ramp brightness up as daylight fades (dusk/night), down in daytime. */
+  auto: z.boolean().default(false),
+});
+
+/** A named, recallable snapshot of the lighting setup ("Evening", "Reading", ...). */
+export const LightingSceneSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sunMode: z.enum(['auto', 'manual']),
+  timeMinutes: z.number(),
+  weather: z.enum(['clear', 'hazy', 'overcast', 'golden']),
+  sunIntensity: z.number(),
+  exposure: z.number(),
+  sunWarmth: z.number(),
+  lights: z.array(
+    z.object({ id: z.string(), on: z.boolean(), intensityCandela: z.number(), kelvin: z.number() }),
+  ),
 });
 
 export const SiteSchema = z.object({
@@ -70,6 +93,7 @@ export const SceneDocumentSchema = z.object({
   openings: z.array(OpeningSchema),
   furniture: z.array(FurnitureInstanceSchema),
   lights: z.array(LightInstanceSchema),
+  lightingScenes: z.array(LightingSceneSchema).default([]),
   view: ViewSchema,
 });
 
@@ -79,7 +103,9 @@ export type Wall = z.infer<typeof WallSchema>;
 export type Opening = z.infer<typeof OpeningSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type FurnitureInstance = z.infer<typeof FurnitureInstanceSchema>;
+export type FixtureKind = z.infer<typeof FixtureKindSchema>;
 export type LightInstance = z.infer<typeof LightInstanceSchema>;
+export type LightingScene = z.infer<typeof LightingSceneSchema>;
 export type Site = z.infer<typeof SiteSchema>;
 export type SceneDocument = z.infer<typeof SceneDocumentSchema>;
 

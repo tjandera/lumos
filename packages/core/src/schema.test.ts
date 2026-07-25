@@ -42,6 +42,28 @@ describe('migrations', () => {
     expect('location' in migrated).toBe(false);
   });
 
+  it('upgrades a v2 document, defaulting fixtures to a table lamp and adding lightingScenes', () => {
+    const legacyV2 = {
+      schemaVersion: 2,
+      id: 'old2',
+      name: 'Old Doc v2',
+      site: { lat: 1, lng: 2, trueNorthOffsetDeg: 0 },
+      rooms: [],
+      openings: [],
+      furniture: [],
+      lights: [{ id: 'lamp-1', kind: 'lamp', position: { x: 0, y: 1, z: 0 }, intensityCandela: 200, color: '#ffe6b0' }],
+      view: {
+        timeOfDay: '2026-01-01T12:00:00',
+        camera: { position: { x: 1, y: 1, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+      },
+    };
+    const migrated = migrateSceneDocument(legacyV2);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.lightingScenes).toEqual([]);
+    expect(migrated.lights[0]).toMatchObject({ kind: 'table', kelvin: 2700, on: true, castShadow: true, auto: false });
+    expect(migrated.lights[0].color).toBe('#ffe6b0'); // preserved, not overwritten
+  });
+
   it('leaves a current document unchanged', () => {
     expect(migrateSceneDocument(sampleScene)).toEqual(sampleScene);
   });

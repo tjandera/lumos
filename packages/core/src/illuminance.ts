@@ -40,6 +40,27 @@ export function illuminanceAt(point: { x: number; z: number }, inputs: Illuminan
   return lux;
 }
 
+export interface FixtureState {
+  intensityCandela: number;
+  on: boolean;
+  auto: boolean;
+}
+
+/**
+ * A fixture's effective brightness right now: 0 if switched off; otherwise its set
+ * intensity, scaled by `(1 - dayFactor)` when `auto` is on so it ramps up as daylight
+ * fades (dayFactor 1 = full daylight, 0 = night) and stays constant otherwise.
+ */
+export function effectiveFixtureIntensity(fixture: FixtureState, dayFactor: number): number {
+  if (!fixture.on) return 0;
+  if (!fixture.auto) return fixture.intensityCandela;
+  return fixture.intensityCandela * (1 - clamp01(dayFactor));
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
 export interface RoomStandard {
   id: string;
   name: string;

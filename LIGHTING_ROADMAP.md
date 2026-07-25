@@ -3,7 +3,10 @@
 ## Where we are
 
 Natural sun (auto/manual, time/date/location/orientation, weather, exposure, warmth), a
-sun-path + compass, a solar-exposure floor heatmap, and basic interior point lamps.
+sun-path + compass, a solar-exposure floor heatmap, an illuminance (lux) heatmap +
+room-standard check (Phase 12), and **real fixture models** — ceiling/wall/floor/table,
+each with Kelvin, brightness, on/off, cast-shadow, and dusk auto-ramp — plus a lighting
+**scenes** system (save/apply named presets + built-in Evening/Reading/Movie) (Phase 8).
 
 To make lighting *look* like a real room and support what real lighting *requires*, the
 gaps are: proper **fixtures**, **surface materials**, **indirect (bounce) light**,

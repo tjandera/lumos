@@ -1,7 +1,11 @@
-import type { ReactNode } from 'react';
-import { daylightTimes, ROOM_STANDARDS } from '@interior/core';
+import { useState, type ReactNode } from 'react';
+import { daylightTimes, kelvinToRgb, ROOM_STANDARDS, type FixtureKind, type LightInstance } from '@interior/core';
 import { useUiStore, type Quality, type SunMode, type Weather } from './uiStore';
 import { useSceneStore } from './store';
+
+const FIXTURE_LABEL: Record<FixtureKind, string> = { ceiling: 'Ceiling', wall: 'Wall', floor: 'Floor', table: 'Table' };
+/** Mount height (meters) each fixture kind is placed at when added. */
+const FIXTURE_HEIGHT: Record<FixtureKind, number> = { ceiling: 2.6, wall: 1.8, floor: 0.05, table: 0.75 };
 
 const CITIES = [
   { name: 'Singapore', lat: 1.2966, lng: 103.8764 },
@@ -68,6 +72,86 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 const chip = (active: boolean) =>
   `rounded px-2 py-0.5 text-[11px] ${active ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/60 hover:bg-white/20'}`;
 
+function FixtureRow({
+  light,
+  onIntensity,
+  onKelvin,
+  onFlag,
+  onDelete,
+}: {
+  light: LightInstance;
+  onIntensity: (v: number) => void;
+  onKelvin: (v: number) => void;
+  onFlag: (field: 'on' | 'castShadow' | 'auto', v: boolean) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded bg-white/5 p-1.5">
+      <div className="flex items-center justify-between text-[11px] text-white/60">
+        <span className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-2.5 w-2.5 rounded-full"
+            style={{ background: light.on ? light.color : '#555', boxShadow: light.on ? `0 0 5px ${light.color}` : 'none' }}
+          />
+          {FIXTURE_LABEL[light.kind]}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1">
+            <input type="checkbox" checked={light.on} onChange={(e) => onFlag('on', e.target.checked)} />
+            on
+          </label>
+          <button className="px-1 text-red-300 hover:text-red-200" onClick={onDelete}>
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <label className="mt-1.5 block text-[10px] text-white/50">
+        <div className="mb-0.5 flex justify-between">
+          <span>Kelvin</span>
+          <span className="font-mono text-white/70">{Math.round(light.kelvin)}K</span>
+        </div>
+        <input
+          type="range"
+          min={2700}
+          max={6500}
+          step={50}
+          value={light.kelvin}
+          onChange={(e) => onKelvin(Number(e.target.value))}
+          className="h-1 w-full cursor-pointer accent-amber-400"
+        />
+      </label>
+
+      <label className="mt-1.5 block text-[10px] text-white/50">
+        <div className="mb-0.5 flex justify-between">
+          <span>Brightness</span>
+          <span className="font-mono text-white/70">{light.intensityCandela}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={800}
+          step={10}
+          value={light.intensityCandela}
+          onChange={(e) => onIntensity(Number(e.target.value))}
+          className="h-1 w-full cursor-pointer accent-amber-400"
+        />
+      </label>
+
+      <div className="mt-1.5 flex gap-3 text-[10px] text-white/50">
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={light.castShadow} onChange={(e) => onFlag('castShadow', e.target.checked)} />
+          Shadow
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={light.auto} onChange={(e) => onFlag('auto', e.target.checked)} />
+          Auto (dusk)
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export function LightingPanel() {
   const sunMode = useUiStore((s) => s.sunMode);
   const setSunMode = useUiStore((s) => s.setSunMode);
@@ -82,6 +166,7 @@ export function LightingPanel() {
   const toggleSunPath = useUiStore((s) => s.toggleSunPath);
   const quality = useUiStore((s) => s.quality);
   const setQuality = useUiStore((s) => s.setQuality);
+  const timeMinutes = useUiStore((s) => s.timeMinutes);
   const setTimeMinutes = useUiStore((s) => s.setTimeMinutes);
   const playing = useUiStore((s) => s.playing);
   const togglePlaying = useUiStore((s) => s.togglePlaying);
@@ -129,17 +214,124 @@ export function LightingPanel() {
       z: zs.length ? (Math.min(...zs) + Math.max(...zs)) / 2 : 0,
     };
   };
-  const addLamp = () => {
+  const addFixture = (kind: FixtureKind) => {
     const c = roomCenter();
-    edit((d) =>
-      d.lights.push({ id: crypto.randomUUID(), kind: 'lamp', position: { x: c.x, y: 2.2, z: c.z }, intensityCandela: 300, color: '#ffe6b0' }),
-    );
+    const kelvin = 2700;
+    edit((d) => {
+      d.lights.push({
+        id: crypto.randomUUID(),
+        kind,
+        position: { x: c.x, y: FIXTURE_HEIGHT[kind], z: c.z },
+        intensityCandela: 300,
+        color: kelvinToRgb(kelvin),
+        kelvin,
+        on: true,
+        castShadow: true,
+        auto: false,
+      });
+    });
   };
   const setLampIntensity = (id: string, v: number) =>
     edit((d) => { const l = d.lights.find((x) => x.id === id); if (l) l.intensityCandela = v; });
-  const setLampColor = (id: string, hex: string) =>
-    edit((d) => { const l = d.lights.find((x) => x.id === id); if (l) l.color = hex; });
+  const setLampKelvin = (id: string, k: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) {
+        l.kelvin = k;
+        l.color = kelvinToRgb(k);
+      }
+    });
+  const setLampFlag = (id: string, field: 'on' | 'castShadow' | 'auto', v: boolean) =>
+    edit((d) => { const l = d.lights.find((x) => x.id === id); if (l) l[field] = v; });
   const removeLamp = (id: string) => edit((d) => { d.lights = d.lights.filter((x) => x.id !== id); });
+
+  // --- Lighting scenes: snapshot the current mood, recall it later ---
+  const [sceneName, setSceneName] = useState('');
+  const captureScene = (name: string) => ({
+    id: crypto.randomUUID(),
+    name,
+    sunMode,
+    timeMinutes,
+    weather,
+    sunIntensity: intensity,
+    exposure,
+    sunWarmth,
+    lights: doc.lights.map((l) => ({ id: l.id, on: l.on, intensityCandela: l.intensityCandela, kelvin: l.kelvin })),
+  });
+  const applyScene = (scene: {
+    sunMode: SunMode;
+    timeMinutes: number;
+    weather: Weather;
+    sunIntensity: number;
+    exposure: number;
+    sunWarmth: number;
+    lights: { id: string; on: boolean; intensityCandela: number; kelvin: number }[];
+  }) => {
+    setSunMode(scene.sunMode);
+    setTimeMinutes(scene.timeMinutes);
+    setWeather(scene.weather);
+    setSunIntensity(scene.sunIntensity);
+    setExposure(scene.exposure);
+    setSunWarmth(scene.sunWarmth);
+    edit((d) => {
+      for (const snap of scene.lights) {
+        const l = d.lights.find((x) => x.id === snap.id);
+        if (l) {
+          l.on = snap.on;
+          l.intensityCandela = snap.intensityCandela;
+          l.kelvin = snap.kelvin;
+          l.color = kelvinToRgb(snap.kelvin);
+        }
+      }
+    });
+  };
+  const saveScene = () => {
+    const name = sceneName.trim();
+    if (!name) return;
+    edit((d) => {
+      d.lightingScenes.push(captureScene(name));
+    });
+    setSceneName('');
+  };
+  const deleteScene = (id: string) => edit((d) => { d.lightingScenes = d.lightingScenes.filter((s) => s.id !== id); });
+
+  // Built-in one-click moods (interior-focused; complements the Sun-study time presets).
+  const quickScenes: Record<string, () => void> = {
+    Evening: () => {
+      setSunAngles(250, 4); // low golden-hour sun
+      applyScene({
+        sunMode: 'manual',
+        timeMinutes,
+        weather: 'clear',
+        sunIntensity: 0.3,
+        exposure: 1,
+        sunWarmth: 0.5,
+        lights: doc.lights.map((l) => ({ id: l.id, on: true, intensityCandela: Math.max(l.intensityCandela, 250), kelvin: 2400 })),
+      });
+    },
+    Reading: () =>
+      applyScene({
+        sunMode,
+        timeMinutes,
+        weather,
+        sunIntensity: intensity,
+        exposure: 1.1,
+        sunWarmth,
+        lights: doc.lights.map((l) => ({ id: l.id, on: true, intensityCandela: Math.max(l.intensityCandela, 500), kelvin: 4000 })),
+      }),
+    Movie: () => {
+      setSunAngles(0, -5); // below the horizon — night
+      applyScene({
+        sunMode: 'manual',
+        timeMinutes,
+        weather: 'overcast',
+        sunIntensity: 0.2,
+        exposure: 0.75,
+        sunWarmth: 0.2,
+        lights: doc.lights.map((l) => ({ id: l.id, on: false, intensityCandela: l.intensityCandela, kelvin: l.kelvin })),
+      });
+    },
+  };
 
   const presets: [string, number][] = [
     ['Sunrise', minsOf(times.sunrise, 6 * 60)],
@@ -303,37 +495,62 @@ export function LightingPanel() {
         )}
       </Section>
 
-      <Section title="Interior lamps">
-        <button className={chip(false)} onClick={addLamp}>
-          + Add lamp
-        </button>
-        {lamps.map((l, i) => (
-          <div key={l.id} className="mt-2 rounded bg-white/5 p-1.5">
-            <div className="flex items-center justify-between text-[11px] text-white/60">
-              <span>Lamp {i + 1}</span>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  value={l.color}
-                  onChange={(e) => setLampColor(l.id, e.target.value)}
-                  className="h-5 w-6 cursor-pointer rounded bg-transparent"
-                />
-                <button className="px-1 text-red-300 hover:text-red-200" onClick={() => removeLamp(l.id)}>
-                  ✕
-                </button>
-              </div>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={800}
-              step={10}
-              value={l.intensityCandela}
-              onChange={(e) => setLampIntensity(l.id, Number(e.target.value))}
-              className="mt-1 h-1 w-full cursor-pointer accent-amber-400"
-            />
-          </div>
+      <Section title="Light fixtures">
+        <div className="flex flex-wrap gap-1">
+          {(['ceiling', 'wall', 'floor', 'table'] as FixtureKind[]).map((k) => (
+            <button key={k} className={chip(false)} onClick={() => addFixture(k)}>
+              + {FIXTURE_LABEL[k]}
+            </button>
+          ))}
+        </div>
+        {lamps.map((l) => (
+          <FixtureRow
+            key={l.id}
+            light={l}
+            onIntensity={(v) => setLampIntensity(l.id, v)}
+            onKelvin={(v) => setLampKelvin(l.id, v)}
+            onFlag={(f, v) => setLampFlag(l.id, f, v)}
+            onDelete={() => removeLamp(l.id)}
+          />
         ))}
+      </Section>
+
+      <Section title="Scenes">
+        <div className="flex flex-wrap gap-1">
+          {Object.keys(quickScenes).map((name) => (
+            <button key={name} className={chip(false)} onClick={quickScenes[name]}>
+              {name}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex gap-1">
+          <input
+            value={sceneName}
+            onChange={(e) => setSceneName(e.target.value)}
+            placeholder="Scene name…"
+            className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1 text-xs placeholder:text-white/30"
+          />
+          <button className={chip(false)} onClick={saveScene}>
+            Save
+          </button>
+        </div>
+        {doc.lightingScenes.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {doc.lightingScenes.map((s) => (
+              <div key={s.id} className="flex items-center justify-between rounded bg-white/5 px-1.5 py-1 text-xs">
+                <span className="truncate text-white/70">{s.name}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button className="text-amber-300 hover:text-amber-200" onClick={() => applyScene(s)}>
+                    Apply
+                  </button>
+                  <button className="px-1 text-red-300 hover:text-red-200" onClick={() => deleteScene(s.id)}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       <Section title="Quality">

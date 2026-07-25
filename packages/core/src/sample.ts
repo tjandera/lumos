@@ -14,7 +14,7 @@ function rectWalls(w: number, d: number, height: number, thickness: number) {
 
 /** A simple 5m × 4m room with a couple of furniture placeholders and a lamp. */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: 'sample-studio',
   name: 'Sample Studio',
   site: { lat: 1.2966, lng: 103.8764, trueNorthOffsetDeg: 0 },
@@ -34,8 +34,19 @@ export const sampleScene: SceneDocument = {
     { id: 'f-table', catalogId: 'coffee-table', position: { x: 0, y: 0, z: -0.2 }, rotationY: 0, scale: 1 },
   ],
   lights: [
-    { id: 'lamp-1', kind: 'lamp', position: { x: 1.6, y: 1.4, z: -1.6 }, intensityCandela: 200, color: '#ffe6b0' },
+    {
+      id: 'lamp-1',
+      kind: 'table',
+      position: { x: 1.6, y: 0.75, z: -1.6 },
+      intensityCandela: 200,
+      color: '#ffab5c',
+      kelvin: 2700,
+      on: true,
+      castShadow: true,
+      auto: false,
+    },
   ],
+  lightingScenes: [],
   view: {
     timeOfDay: '2026-06-21T16:00:00',
     camera: { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } },

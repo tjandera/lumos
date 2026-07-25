@@ -3,7 +3,15 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Sky, Line } from '@react-three/drei';
 import { SceneView } from '@interior/renderer';
-import { sunVector, sunFromAngles, sunPath, illuminanceAt, type SunPathPoint, type LampSample } from '@interior/core';
+import {
+  sunVector,
+  sunFromAngles,
+  sunPath,
+  illuminanceAt,
+  effectiveFixtureIntensity,
+  type SunPathPoint,
+  type LampSample,
+} from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { useCollidingFurniture } from './collisions';
@@ -300,8 +308,9 @@ export function Scene3D({ active }: { active: boolean }) {
     [doc.lights],
   );
   const lampsKey = useMemo(
-    () => lampSamples.map((l) => `${l.x},${l.y},${l.z},${l.intensityCandela}`).join('|'),
-    [lampSamples],
+    () =>
+      doc.lights.map((l) => `${l.position.x},${l.position.y},${l.position.z},${l.intensityCandela},${l.on},${l.auto}`).join('|'),
+    [doc.lights],
   );
 
   const studyBounds = useMemo(() => {
@@ -354,6 +363,16 @@ export function Scene3D({ active }: { active: boolean }) {
   const dist = 30;
   const shadowMap = SHADOW_MAP[quality];
   const wx = WEATHER[weather];
+
+  // What's actually emitting right now — matches the renderer's on/off + auto-ramp
+  // logic, so the lux heatmap reflects what you actually see, not the raw settings.
+  const litLampSamples = useMemo(
+    () =>
+      lampSamples
+        .map((l, i) => ({ ...l, intensityCandela: effectiveFixtureIntensity({ ...doc.lights[i], intensityCandela: l.intensityCandela }, day) }))
+        .filter((l) => l.intensityCandela > 0),
+    [lampSamples, doc.lights, day],
+  );
 
   const effWarm = clamp(sunWarmth + (weather === 'golden' ? 0.4 : 0) + (1 - day) * 0.35, -1, 1);
   const sunColor = useMemo(() => {
@@ -431,8 +450,8 @@ export function Scene3D({ active }: { active: boolean }) {
       {luxOn && (
         <LuxStudy
           sun={sun}
-          lamps={lampSamples}
-          lampsKey={lampsKey}
+          lamps={litLampSamples}
+          lampsKey={lampsKey + day}
           skyLux={Math.max(0, sun.y) * 2500}
           bounds={studyBounds}
           onAvg={setAvgLux}
@@ -445,6 +464,7 @@ export function Scene3D({ active }: { active: boolean }) {
         selectedFurnitureId={selectedFurnitureId}
         collidingIds={collidingIds}
         onSelectFurniture={selectFurniture}
+        dayFactor={day}
       />
       <gridHelper args={[24, 24, '#2a2a30', '#202024']} position={[0, -0.03, 0]} />
       <OrbitControls

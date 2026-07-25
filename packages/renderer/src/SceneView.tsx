@@ -4,11 +4,13 @@ import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import {
   DEG2RAD,
+  effectiveFixtureIntensity,
   type SceneDocument,
   type Wall,
   type Opening,
   type FurnitureInstance,
   type LightInstance,
+  type FixtureKind,
 } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM, type CatalogItem } from '@interior/catalog';
 import { computeWallShape, buildWallGeometry } from './wallGeometry';
@@ -24,6 +26,8 @@ export interface SceneViewProps {
   selectedFurnitureId?: string | null;
   collidingIds?: Set<string>;
   onSelectFurniture?: (id: string) => void;
+  /** 0 (night) .. 1 (full daylight) — drives fixtures with `auto` dusk-ramping on. */
+  dayFactor?: number;
 }
 
 export function SceneView({
@@ -32,6 +36,7 @@ export function SceneView({
   selectedFurnitureId = null,
   collidingIds,
   onSelectFurniture,
+  dayFactor = 0,
 }: SceneViewProps) {
   const centroid = useMemo(() => roomCentroid(doc), [doc]);
   return (
@@ -52,7 +57,7 @@ export function SceneView({
         />
       ))}
       {doc.lights.map((light) => (
-        <Lamp key={light.id} light={light} />
+        <Fixture key={light.id} light={light} dayFactor={dayFactor} />
       ))}
     </group>
   );
@@ -216,16 +221,81 @@ function FurnitureModel({ url, targetWidth }: { url: string; targetWidth: number
   return <primitive object={object} />;
 }
 
-function Lamp({ light }: { light: LightInstance }) {
+// Real Kenney fixture models (CC0), one per mount type — see LICENSES.md.
+const FIXTURE_MODELS: Record<FixtureKind, string> = {
+  ceiling: '/models/fixture-ceiling.glb',
+  wall: '/models/fixture-wall.glb',
+  floor: '/models/floor-lamp.glb',
+  table: '/models/fixture-table.glb',
+};
+// Real-world footprint (meters) each fixture model is scaled to.
+const FIXTURE_SIZE: Record<FixtureKind, number> = {
+  ceiling: 0.32,
+  wall: 0.22,
+  floor: 0.32,
+  table: 0.22,
+};
+
+function Fixture({ light, dayFactor }: { light: LightInstance; dayFactor: number }) {
+  const effIntensity = effectiveFixtureIntensity(light, dayFactor);
+  const isLit = effIntensity > 0;
   return (
     <group position={[light.position.x, light.position.y, light.position.z]}>
-      <pointLight color={light.color} intensity={light.intensityCandela} decay={2} castShadow />
-      <mesh>
-        <sphereGeometry args={[0.05, 16, 16]} />
-        <meshStandardMaterial color={light.color} emissive={light.color} emissiveIntensity={2} />
-      </mesh>
+      {isLit && (
+        <pointLight color={light.color} intensity={effIntensity} decay={2} castShadow={light.castShadow} />
+      )}
+      <Suspense fallback={<FixtureBulb light={light} lit={isLit} />}>
+        <FixtureModel kind={light.kind} color={light.color} lit={isLit} />
+      </Suspense>
     </group>
   );
+}
+
+/** Loading/error fallback: a small glowing (or dark, if off) sphere. */
+function FixtureBulb({ light, lit }: { light: LightInstance; lit: boolean }) {
+  return (
+    <mesh>
+      <sphereGeometry args={[0.05, 16, 16]} />
+      <meshStandardMaterial
+        color={light.color}
+        emissive={light.color}
+        emissiveIntensity={lit ? 2 : 0}
+      />
+    </mesh>
+  );
+}
+
+/** The real fixture GLB for this mount kind, tinted/glowing to match the bulb's state. */
+function FixtureModel({ kind, color, lit }: { kind: FixtureKind; color: string; lit: boolean }) {
+  const { scene } = useGLTF(FIXTURE_MODELS[kind]);
+  const object = useMemo(() => {
+    const cloned = scene.clone(true);
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const target = FIXTURE_SIZE[kind];
+    const s = size.x > 1e-4 ? target / size.x : 1;
+    cloned.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (mat && 'emissive' in mat) {
+          mat.emissive = new THREE.Color(lit ? color : '#000000');
+          mat.emissiveIntensity = lit ? 0.8 : 0;
+        }
+      }
+    });
+    // Ceiling/wall fixtures mount at their given position (already set to ceiling/wall
+    // height by the UI); floor/table fixtures sit base-down at that position.
+    const dropToBase = kind === 'floor' || kind === 'table';
+    cloned.position.set(-center.x, dropToBase ? -box.min.y : -center.y, -center.z);
+    const wrapper = new THREE.Group();
+    wrapper.add(cloned);
+    wrapper.scale.setScalar(s);
+    return wrapper;
+  }, [scene, kind, color, lit]);
+  return <primitive object={object} />;
 }
 
 function roomCentroid(doc: SceneDocument): { x: number; z: number } {

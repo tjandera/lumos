@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { illuminanceAt } from './illuminance';
+import { illuminanceAt, effectiveFixtureIntensity } from './illuminance';
 
 describe('illuminanceAt', () => {
   it('is zero with no light', () => {
@@ -20,5 +20,23 @@ describe('illuminanceAt', () => {
     // directly under: I·dy/d³ = 400·2 / 2³ = 100 lux
     expect(under).toBeCloseTo(100, 1);
     expect(away).toBeLessThan(under);
+  });
+});
+
+describe('effectiveFixtureIntensity', () => {
+  it('is zero when switched off, regardless of auto', () => {
+    expect(effectiveFixtureIntensity({ intensityCandela: 500, on: false, auto: false }, 0)).toBe(0);
+    expect(effectiveFixtureIntensity({ intensityCandela: 500, on: false, auto: true }, 0)).toBe(0);
+  });
+
+  it('ignores dayFactor when auto is off', () => {
+    expect(effectiveFixtureIntensity({ intensityCandela: 300, on: true, auto: false }, 1)).toBe(300);
+  });
+
+  it('ramps down toward zero in daylight and up to full at night when auto', () => {
+    const day = effectiveFixtureIntensity({ intensityCandela: 300, on: true, auto: true }, 1);
+    const night = effectiveFixtureIntensity({ intensityCandela: 300, on: true, auto: true }, 0);
+    expect(day).toBe(0);
+    expect(night).toBe(300);
   });
 });
