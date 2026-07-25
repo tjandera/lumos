@@ -14,7 +14,7 @@ function rectWalls(w: number, d: number, height: number, thickness: number) {
 
 /** A simple 5m × 4m room with a couple of furniture placeholders and a lamp. */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: 'sample-studio',
   name: 'Sample Studio',
   site: { lat: 1.2966, lng: 103.8764, trueNorthOffsetDeg: 0 },
@@ -27,8 +27,28 @@ export const sampleScene: SceneDocument = {
     },
   ],
   openings: [
-    { id: 'win-1', wallId: 'wall-S', kind: 'window', offset: 1.7, width: 1.6, height: 1.2, sillHeight: 0.9 },
-    { id: 'door-1', wallId: 'wall-W', kind: 'door', offset: 0.4, width: 0.9, height: 2.1, sillHeight: 0 },
+    {
+      id: 'win-1',
+      wallId: 'wall-S',
+      kind: 'window',
+      offset: 1.7,
+      width: 1.6,
+      height: 1.2,
+      sillHeight: 0.9,
+      glassTint: 0.06,
+      covering: { type: 'curtains', state: 'open' },
+    },
+    {
+      id: 'door-1',
+      wallId: 'wall-W',
+      kind: 'door',
+      offset: 0.4,
+      width: 0.9,
+      height: 2.1,
+      sillHeight: 0,
+      glassTint: 0.06,
+      covering: { type: 'none', state: 'open' },
+    },
   ],
   furniture: [
     { id: 'f-sofa', catalogId: 'sofa-2seat', position: { x: 0, y: 0, z: -1.3 }, rotationY: 0, scale: 1 },

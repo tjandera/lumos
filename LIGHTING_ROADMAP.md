@@ -10,7 +10,9 @@ each with Kelvin, brightness, on/off, cast-shadow, and dusk auto-ramp — plus a
 and **wall/floor/ceiling materials** — paint colour + finish (matte→gloss via a tested
 roughness mapping) per surface, plus an actual **ceiling** that auto-fades from the
 default overhead view but shows (and correctly occludes the sun/lux heatmaps) when
-viewed from inside the room (Phase 9).
+viewed from inside the room (Phase 9). Windows now carry **glass tint** (cosmetic) and a
+closeable **curtain/blind covering** that genuinely blocks daylight — closing it visibly
+shades that side of the room in the sun-exposure heatmap, not just the render (Phase 11).
 
 To make lighting *look* like a real room and support what real lighting *requires*, the
 gaps are: proper **fixtures**, **surface materials**, **indirect (bounce) light**,

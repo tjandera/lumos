@@ -62,6 +62,18 @@ const migrators: Record<number, Migrator> = {
     }));
     return { ...doc, schemaVersion: 4, rooms };
   },
+
+  // v4 -> v5: openings gain `glassTint` (cosmetic) and `covering` (the actual
+  // daylight control — open by default, so existing designs behave unchanged).
+  4: (doc) => {
+    const rest = doc as { openings?: Array<Record<string, unknown>> };
+    const openings = (rest.openings ?? []).map((o) => ({
+      ...o,
+      glassTint: o.glassTint ?? 0.06,
+      covering: o.covering ?? { type: 'none', state: 'open' },
+    }));
+    return { ...doc, schemaVersion: 5, openings };
+  },
 };
 
 /**

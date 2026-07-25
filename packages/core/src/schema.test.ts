@@ -89,6 +89,30 @@ describe('migrations', () => {
     });
   });
 
+  it('upgrades a v4 document, defaulting window glass tint + an open covering', () => {
+    const legacyV4 = {
+      schemaVersion: 4,
+      id: 'old4',
+      name: 'Old Doc v4',
+      site: { lat: 1, lng: 2, trueNorthOffsetDeg: 0 },
+      rooms: [],
+      openings: [
+        { id: 'win-1', wallId: 'wall-S', kind: 'window', offset: 0, width: 1, height: 1, sillHeight: 0.9 },
+      ],
+      furniture: [],
+      lights: [],
+      lightingScenes: [],
+      view: {
+        timeOfDay: '2026-01-01T12:00:00',
+        camera: { position: { x: 1, y: 1, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+      },
+    };
+    const migrated = migrateSceneDocument(legacyV4);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.openings[0].glassTint).toBe(0.06);
+    expect(migrated.openings[0].covering).toEqual({ type: 'none', state: 'open' });
+  });
+
   it('leaves a current document unchanged', () => {
     expect(migrateSceneDocument(sampleScene)).toEqual(sampleScene);
   });

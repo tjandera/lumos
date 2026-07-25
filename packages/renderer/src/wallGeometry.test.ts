@@ -24,6 +24,8 @@ describe('computeWallShape', () => {
       width: 1.6,
       height: 1.2,
       sillHeight: 0.9,
+      glassTint: 0.06,
+      covering: { type: 'none', state: 'open' },
     };
     const shape = computeWallShape(wall, [opening]);
     expect(shape.holes).toHaveLength(1);
@@ -39,6 +41,8 @@ describe('computeWallShape', () => {
       width: 0.9,
       height: 2.1,
       sillHeight: 0,
+      glassTint: 0.06,
+      covering: { type: 'none', state: 'open' },
     };
     expect(computeWallShape(wall, [opening]).holes).toHaveLength(0);
   });
@@ -52,6 +56,8 @@ describe('computeWallShape', () => {
       width: 2,
       height: 1,
       sillHeight: 2.4,
+      glassTint: 0.06,
+      covering: { type: 'none', state: 'open' },
     };
     // width clamps to [4.5, 5], height clamps to [2.4, 2.7]
     expect(computeWallShape(wall, [opening]).holes[0]).toEqual({

@@ -1,5 +1,5 @@
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import type { SceneDocument, Wall, Opening } from '@interior/core';
+import type { SceneDocument, Wall, Opening, Covering } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
@@ -185,6 +185,8 @@ export function PlanEditor() {
         width,
         height: kind === 'door' ? 2.1 : 1.2,
         sillHeight: kind === 'door' ? 0 : 0.9,
+        glassTint: 0.06,
+        covering: { type: 'none', state: 'open' },
       });
     });
   const deleteWall = (id: string) => {
@@ -209,6 +211,16 @@ export function PlanEditor() {
     edit((d) => {
       const o = d.openings.find((x) => x.id === id);
       if (o && Number.isFinite(value) && value > 0) o.width = value;
+    });
+  const setGlassTint = (id: string, value: number) =>
+    edit((d) => {
+      const o = d.openings.find((x) => x.id === id);
+      if (o) o.glassTint = value;
+    });
+  const setCovering = (id: string, covering: Partial<Covering>) =>
+    edit((d) => {
+      const o = d.openings.find((x) => x.id === id);
+      if (o) Object.assign(o.covering, covering);
     });
   const rotateFurniture = (id: string, delta: number) =>
     edit((d) => {
@@ -284,6 +296,49 @@ export function PlanEditor() {
         <Panel title={o.kind === 'door' ? 'Door' : 'Window'}>
           <Field label="Offset">{o.offset.toFixed(2)} m</Field>
           <NumberField label="Width" value={o.width} step={0.05} onChange={(v) => setOpeningWidth(o.id, v)} />
+          {o.kind === 'window' && (
+            <>
+              <label className="mt-2 block text-sm">
+                <div className="mb-0.5 flex justify-between text-white/50">
+                  <span>Glass tint</span>
+                  <span className="font-mono text-white/70">{Math.round(o.glassTint * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={o.glassTint}
+                  onChange={(e) => setGlassTint(o.id, Number(e.target.value))}
+                  className="h-1 w-full cursor-pointer accent-sky-400"
+                />
+              </label>
+              <div className="mt-2 text-sm text-white/50">Covering</div>
+              <div className="mt-1 flex gap-1">
+                {(['none', 'curtains', 'blinds'] as Covering['type'][]).map((t) => (
+                  <button
+                    key={t}
+                    className={`rounded px-2 py-0.5 text-[11px] ${
+                      o.covering.type === t ? 'bg-sky-500/25 text-sky-200' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                    }`}
+                    onClick={() => setCovering(o.id, { type: t })}
+                  >
+                    {t === 'none' ? 'None' : t[0].toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {o.covering.type !== 'none' && (
+                <label className="mt-2 flex items-center gap-2 text-sm text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={o.covering.state === 'closed'}
+                    onChange={(e) => setCovering(o.id, { state: e.target.checked ? 'closed' : 'open' })}
+                  />
+                  Closed (blocks daylight)
+                </label>
+              )}
+            </>
+          )}
           <button className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`} onClick={() => deleteOpening(o.id)}>
             Delete {o.kind}
           </button>

@@ -59,6 +59,12 @@ export function SceneView({
           />
         )),
       )}
+      {doc.openings
+        .filter((o) => o.kind === 'window')
+        .map((o) => {
+          const wall = findWallById(doc, o.wallId);
+          return wall ? <WindowFill key={o.id} opening={o} wall={wall} /> : null;
+        })}
       {doc.furniture.map((item) => (
         <FurnitureBox
           key={item.id}
@@ -196,6 +202,65 @@ function Ceiling({ doc }: { doc: SceneDocument }) {
       />
     </mesh>
   );
+}
+
+const COVERING_LOOK: Record<'curtains' | 'blinds', { color: string; roughness: number }> = {
+  curtains: { color: '#c9b79a', roughness: 0.85 },
+  blinds: { color: '#d8d8d0', roughness: 0.55 },
+};
+
+/**
+ * Fills a window opening: a thin tinted glass pane (always present, purely cosmetic —
+ * the sun/lux studies treat glass as transmissive regardless of tint) plus, when a
+ * curtain/blind is closed, an opaque covering panel tagged as a light-blocker exactly
+ * like a wall. Both panes are positioned in the wall's own local frame (offset along the
+ * wall, height above the floor, centered on the wall's thickness), then wrapped in a
+ * group using the wall's own position + rotation — the same trick WallMesh's geometry
+ * uses, so the fill lines up with the hole cut into the wall.
+ */
+function WindowFill({ opening, wall }: { opening: Opening; wall: Wall }) {
+  const dx = wall.end.x - wall.start.x;
+  const dz = wall.end.z - wall.start.z;
+  const rotationY = Math.atan2(-dz, dx);
+  const cx = opening.offset + opening.width / 2;
+  const cy = opening.sillHeight + opening.height / 2;
+  const closed = opening.covering.type !== 'none' && opening.covering.state === 'closed';
+  const look = closed ? COVERING_LOOK[opening.covering.type as 'curtains' | 'blinds'] : null;
+
+  return (
+    <group position={[wall.start.x, 0, wall.start.z]} rotation={[0, rotationY, 0]}>
+      <mesh position={[cx, cy, 0]}>
+        <planeGeometry args={[opening.width, opening.height]} />
+        <meshStandardMaterial
+          color="#bcd4ff"
+          transparent
+          opacity={0.12 + opening.glassTint * 0.5}
+          roughness={0.05}
+          metalness={0.1}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {look && (
+        <mesh
+          position={[cx, cy, wall.thickness / 2 + 0.02]}
+          castShadow
+          receiveShadow
+          userData={{ blocksLight: true }}
+        >
+          <planeGeometry args={[opening.width + 0.05, opening.height + 0.05]} />
+          <meshStandardMaterial color={look.color} roughness={look.roughness} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+function findWallById(doc: SceneDocument, wallId: string): Wall | undefined {
+  for (const room of doc.rooms) {
+    const w = room.walls.find((x) => x.id === wallId);
+    if (w) return w;
+  }
+  return undefined;
 }
 
 function FurnitureBox({

@@ -5,7 +5,7 @@ import { z } from 'zod';
  * migrations.ts keyed by the version it upgrades FROM. Saved and shared designs
  * are validated + migrated on load, so they survive schema evolution.
  */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 const Vec2Schema = z.object({ x: z.number(), z: z.number() }); // ground-plane point (meters)
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
@@ -18,6 +18,14 @@ export const WallSchema = z.object({
   height: z.number().positive(), // meters
 });
 
+/** Daylight control for a window: fully open (no extra occlusion) or fully closed
+ * (opaque — blocks the sun/lux studies exactly like a wall). No partial state: a
+ * curtain/blind either is or isn't doing its job for a light study. */
+export const CoveringSchema = z.object({
+  type: z.enum(['none', 'curtains', 'blinds']).default('none'),
+  state: z.enum(['open', 'closed']).default('open'),
+});
+
 export const OpeningSchema = z.object({
   id: z.string(),
   wallId: z.string(),
@@ -26,6 +34,11 @@ export const OpeningSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   sillHeight: z.number().nonnegative(), // meters from floor (0 for doors)
+  /** Window-only (present but unused on doors): 0 = clear, 1 = fully tinted/opaque.
+   * Cosmetic — the light studies treat glass as transmissive regardless of tint;
+   * `covering` below is what actually blocks daylight. */
+  glassTint: z.number().min(0).max(1).default(0.06),
+  covering: CoveringSchema.default({ type: 'none', state: 'open' }),
 });
 
 /** Named paint/flooring sheen — see materials.ts for the roughness each maps to. */
@@ -118,6 +131,7 @@ export type Vec2 = z.infer<typeof Vec2Schema>;
 export type Vec3 = z.infer<typeof Vec3Schema>;
 export type Wall = z.infer<typeof WallSchema>;
 export type Opening = z.infer<typeof OpeningSchema>;
+export type Covering = z.infer<typeof CoveringSchema>;
 export type Finish = z.infer<typeof FinishSchema>;
 export type Material = z.infer<typeof MaterialSchema>;
 export type RoomMaterials = z.infer<typeof RoomMaterialsSchema>;
