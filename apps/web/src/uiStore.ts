@@ -35,6 +35,7 @@ interface UiStore {
   setQuality: (q: Quality) => void;
   lightingOpen: boolean;
   toggleLighting: () => void;
+  setLightingOpen: (v: boolean) => void;
   materialsOpen: boolean;
   toggleMaterials: () => void;
 
@@ -82,6 +83,33 @@ interface UiStore {
   // --- Phase 13: selected light fixture (Plan-mode editing) ---
   selectedLightId: string | null;
   selectLight: (id: string | null) => void;
+
+  // --- Photo-based room import ---
+  importOpen: boolean;
+  toggleImport: () => void;
+  importBusy: boolean;
+  importError: string | null;
+  /** The uploaded photo (data URL), kept around so it can be pinned as a reference
+   * while refining the generated room — not persisted with the scene document. */
+  referencePhoto: string | null;
+  showReferencePhoto: boolean;
+  toggleReferencePhoto: () => void;
+  /** True right after a successful import, until the guided location/orientation step
+   * is acknowledged — forces those Lighting-panel sections open once. */
+  justImportedRoom: boolean;
+  /** Furniture the last import couldn't match to the catalog, and the model's own notes
+   * — surfaced once as a dismissible summary. */
+  importSkipped: string[];
+  importNotes: string | null;
+  /** GPS coordinates read client-side from the uploaded photo's EXIF, if present —
+   * never sent anywhere, only offered as a one-click prefill for the site location. */
+  photoGps: { lat: number; lng: number } | null;
+  setPhotoGps: (gps: { lat: number; lng: number } | null) => void;
+  startImportRequest: () => void;
+  importSucceeded: (result: { photoDataUrl: string; skipped: string[]; notes?: string }) => void;
+  importFailed: (message: string) => void;
+  dismissJustImported: () => void;
+  dismissImportSummary: () => void;
 }
 
 export const useUiStore = create<UiStore>()((set) => ({
@@ -109,6 +137,7 @@ export const useUiStore = create<UiStore>()((set) => ({
   setQuality: (quality) => set({ quality }),
   lightingOpen: false,
   toggleLighting: () => set((s) => ({ lightingOpen: !s.lightingOpen })),
+  setLightingOpen: (lightingOpen) => set({ lightingOpen }),
   materialsOpen: false,
   toggleMaterials: () => set((s) => ({ materialsOpen: !s.materialsOpen })),
 
@@ -143,4 +172,31 @@ export const useUiStore = create<UiStore>()((set) => ({
 
   selectedLightId: null,
   selectLight: (selectedLightId) => set({ selectedLightId }),
+
+  importOpen: false,
+  toggleImport: () => set((s) => ({ importOpen: !s.importOpen })),
+  importBusy: false,
+  importError: null,
+  referencePhoto: null,
+  showReferencePhoto: false,
+  toggleReferencePhoto: () => set((s) => ({ showReferencePhoto: !s.showReferencePhoto })),
+  justImportedRoom: false,
+  importSkipped: [],
+  importNotes: null,
+  photoGps: null,
+  setPhotoGps: (photoGps) => set({ photoGps }),
+  startImportRequest: () => set({ importBusy: true, importError: null }),
+  importSucceeded: ({ photoDataUrl, skipped, notes }) =>
+    set({
+      importBusy: false,
+      importOpen: false,
+      referencePhoto: photoDataUrl,
+      showReferencePhoto: true,
+      justImportedRoom: true,
+      importSkipped: skipped,
+      importNotes: notes ?? null,
+    }),
+  importFailed: (importError) => set({ importBusy: false, importError }),
+  dismissJustImported: () => set({ justImportedRoom: false }),
+  dismissImportSummary: () => set({ importSkipped: [], importNotes: null }),
 }));

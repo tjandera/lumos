@@ -9,4 +9,7 @@ export * from './sunlight';
 export * from './illuminance';
 export * from './color';
 export * from './materials';
+export * from './geometry';
+export * from './fixtures';
 export * from './sample';
+export * from './roomPhoto';

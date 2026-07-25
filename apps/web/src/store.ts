@@ -12,6 +12,10 @@ interface SceneStore {
   redo: () => void;
   /** Discard the saved design and return to the sample scene. */
   reset: () => void;
+  /** Replace the current design with a freshly generated one (e.g. from a photo import).
+   * Like `reset`, this starts a new document rather than recording an edit — there's
+   * little value in "undoing" back into an unrelated previous room. */
+  importDocument: (doc: SceneDocument) => void;
 }
 
 // The document lives in a patch-based History, seeded from localStorage; the store
@@ -42,6 +46,10 @@ export const useSceneStore = create<SceneStore>()((set) => {
     reset: () => {
       clearScene();
       history = new History<SceneDocument>(sampleScene);
+      sync();
+    },
+    importDocument: (doc) => {
+      history = new History<SceneDocument>(doc);
       sync();
     },
   };

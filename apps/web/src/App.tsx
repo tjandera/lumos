@@ -9,12 +9,16 @@ import { TimeOfDayBar } from './TimeOfDayBar';
 import { AIPanel } from './AIPanel';
 import { LightingPanel } from './LightingPanel';
 import { MaterialsPanel } from './MaterialsPanel';
+import { RoomImportPanel } from './RoomImportPanel';
+import { ReferencePhotoPanel } from './ReferencePhotoPanel';
+import { ImportSummaryBanner } from './ImportSummaryBanner';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
   const lightingOpen = useUiStore((s) => s.lightingOpen);
   const materialsOpen = useUiStore((s) => s.materialsOpen);
   const aiEnabled = isFeatureEnabled('ai');
+  const roomPhotoEnabled = isFeatureEnabled('roomPhoto');
 
   return (
     <div className="relative h-full w-full bg-neutral-900">
@@ -26,12 +30,15 @@ export default function App() {
       {mode === '3d' && materialsOpen && <MaterialsPanel />}
       <CatalogPanel />
       {aiEnabled && <AIPanel />}
-      <Toolbar aiEnabled={aiEnabled} mode={mode} />
+      {roomPhotoEnabled && <RoomImportPanel />}
+      <ReferencePhotoPanel />
+      {roomPhotoEnabled && <ImportSummaryBanner />}
+      <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );
 }
 
-function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
+function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; roomPhotoEnabled: boolean; mode: ViewMode }) {
   const setMode = useUiStore((s) => s.setMode);
   const name = useSceneStore((s) => s.doc.name);
   const canUndo = useSceneStore((s) => s.canUndo);
@@ -46,6 +53,7 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
   const toggleLighting = useUiStore((s) => s.toggleLighting);
   const materialsOpen = useUiStore((s) => s.materialsOpen);
   const toggleMaterials = useUiStore((s) => s.toggleMaterials);
+  const toggleImport = useUiStore((s) => s.toggleImport);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -108,6 +116,11 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
         </>
       )}
       <span className="text-white/25">·</span>
+      {roomPhotoEnabled && (
+        <button className={btn} onClick={toggleImport} title="Generate a room from an uploaded photo">
+          📷 Import room
+        </button>
+      )}
       <button className={btn} onClick={reset} title="Discard changes and reload the sample scene">
         Reset
       </button>

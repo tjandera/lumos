@@ -1,16 +1,5 @@
 import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema';
-
-/** Build the 4 walls of a w×d room centered at the origin. */
-function rectWalls(w: number, d: number, height: number, thickness: number) {
-  const hw = w / 2;
-  const hd = d / 2;
-  return [
-    { id: 'wall-N', start: { x: -hw, z: -hd }, end: { x: hw, z: -hd }, thickness, height },
-    { id: 'wall-S', start: { x: -hw, z: hd }, end: { x: hw, z: hd }, thickness, height },
-    { id: 'wall-W', start: { x: -hw, z: -hd }, end: { x: -hw, z: hd }, thickness, height },
-    { id: 'wall-E', start: { x: hw, z: -hd }, end: { x: hw, z: hd }, thickness, height },
-  ];
-}
+import { rectWalls } from './geometry';
 
 /**
  * A simple 5m × 4m room with a couple of furniture placeholders. No lights are

@@ -1,11 +1,16 @@
 import { useState, type ReactNode } from 'react';
-import { daylightTimes, kelvinToRgb, ROOM_STANDARDS, type FixtureKind, type LightInstance } from '@interior/core';
+import {
+  daylightTimes,
+  kelvinToRgb,
+  ROOM_STANDARDS,
+  FIXTURE_MOUNT_HEIGHT,
+  type FixtureKind,
+  type LightInstance,
+} from '@interior/core';
 import { useUiStore, type Quality, type SunMode, type Weather } from './uiStore';
 import { useSceneStore } from './store';
 
 const FIXTURE_LABEL: Record<FixtureKind, string> = { ceiling: 'Ceiling', wall: 'Wall', floor: 'Floor', table: 'Table' };
-/** Mount height (meters) each fixture kind is placed at when added. */
-const FIXTURE_HEIGHT: Record<FixtureKind, number> = { ceiling: 2.6, wall: 1.8, floor: 0.05, table: 0.75 };
 
 const CITIES = [
   { name: 'Singapore', lat: 1.2966, lng: 103.8764 },
@@ -197,6 +202,9 @@ export function LightingPanel() {
   const photoResult = useUiStore((s) => s.photoResult);
   const requestPhoto = useUiStore((s) => s.requestPhoto);
   const clearPhotoResult = useUiStore((s) => s.clearPhotoResult);
+  const justImportedRoom = useUiStore((s) => s.justImportedRoom);
+  const dismissJustImported = useUiStore((s) => s.dismissJustImported);
+  const photoGps = useUiStore((s) => s.photoGps);
 
   const doc = useSceneStore((s) => s.doc);
   const edit = useSceneStore((s) => s.edit);
@@ -232,7 +240,7 @@ export function LightingPanel() {
       d.lights.push({
         id: crypto.randomUUID(),
         kind,
-        position: { x: c.x, y: FIXTURE_HEIGHT[kind], z: c.z },
+        position: { x: c.x, y: FIXTURE_MOUNT_HEIGHT[kind], z: c.z },
         intensityCandela: 300,
         color: kelvinToRgb(kelvin),
         kelvin,
@@ -368,7 +376,25 @@ export function LightingPanel() {
 
       {sunMode === 'auto' ? (
         <>
-          <Section title="Location">
+          <Section title="Location" defaultOpen={justImportedRoom}>
+            {justImportedRoom && (
+              <div className="mb-2 rounded bg-amber-500/10 p-1.5 text-[11px] leading-snug text-amber-200">
+                This room was imported from a photo — set its real location and which way it
+                faces below so the sunlight simulation matches your actual space.
+                <button className="mt-1 block text-amber-100 underline hover:no-underline" onClick={dismissJustImported}>
+                  Got it
+                </button>
+              </div>
+            )}
+            {photoGps && (
+              <button
+                className={`${chip(false)} mb-1.5 w-full`}
+                onClick={() => setCity(photoGps.lat, photoGps.lng)}
+                title="Read from the uploaded photo's EXIF data, client-side only"
+              >
+                📍 Use photo's location ({photoGps.lat.toFixed(2)}, {photoGps.lng.toFixed(2)})
+              </button>
+            )}
             <div className="flex flex-wrap gap-1">
               {CITIES.map((c) => (
                 <button key={c.name} className={chip(false)} onClick={() => setCity(c.lat, c.lng)}>
@@ -439,7 +465,7 @@ export function LightingPanel() {
       <MiniSlider label="Exposure" min={0.5} max={1.6} step={0.05} value={exposure} suffix="×" onChange={setExposure} />
       <MiniSlider label="Warmth" min={-1} max={1} step={0.05} value={sunWarmth} onChange={setSunWarmth} />
 
-      <Section title="Orientation">
+      <Section title="Orientation" defaultOpen={justImportedRoom}>
         <label className="flex items-center justify-between text-xs text-white/60">
           <span>Building faces (° from N)</span>
           <input
@@ -451,6 +477,12 @@ export function LightingPanel() {
             className="w-16 rounded bg-white/10 px-2 py-1 text-right font-mono text-xs [color-scheme:dark]"
           />
         </label>
+        {justImportedRoom && (
+          <p className="mt-1.5 text-[11px] leading-snug text-white/40">
+            Which way does the wall with the window(s) actually face? Rotate this until the
+            sun in the 3D view matches what you'd expect at that time of day.
+          </p>
+        )}
       </Section>
 
       <label className="mt-3 flex items-center gap-2 text-xs text-white/60">

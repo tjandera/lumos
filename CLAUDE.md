@@ -22,7 +22,8 @@ buying.
 - **Undo is patch-based** (`History`, `packages/core/src/undo.ts`). Group a logical edit
   (including AI multi-step edits) into one `update` so it's one undo step.
 - **Features ship behind flags.** AI lives behind `FEATURE_AI` (`isFeatureEnabled('ai')`),
-  default off.
+  photo-based room import behind `FEATURE_ROOM_PHOTO` (`isFeatureEnabled('roomPhoto')`) —
+  both default off.
 - **Never trust raw LLM coordinates.** The AI proposes constraints/intents; deterministic
   code places + validates (Phase 4).
 - **Home address is PII.** Keep it out of the shareable document; only coarse lat/lng +
@@ -34,14 +35,20 @@ buying.
 - `packages/renderer` — react-three-fiber rendering of a SceneDocument
 - `apps/web` — Vite + React + Tailwind app shell + perf HUD
 - `catalog/` — furniture catalog manifest + licensing (asset files pending)
-- `apps/api` — (later) Fastify: auth, designs, catalog, share links
+- `apps/api` — Fastify: currently just `POST /analyze-room-photo` (photo → OpenAI vision
+  → validated `RoomPhotoProposal` → materialized `SceneDocument`), see
+  `ROOM_IMPORT_ROADMAP.md`. Auth/designs-CRUD/share-links remain future work.
 
 ## Commands
 
 - `pnpm install` — install
-- `pnpm dev` — run the web app (Vite, http://localhost:5173)
+- `pnpm dev` — run the web app (Vite, http://localhost:5173) **and** the api (Fastify,
+  http://127.0.0.1:8787) together via turborepo
 - `pnpm test` — unit tests (Vitest)
 - `pnpm typecheck` — typecheck all packages
+
+Photo-room import needs `apps/api/.env` (copy `apps/api/.env.example`) with either a real
+`OPENAI_API_KEY` or `ROOM_PHOTO_MOCK=true` for a canned response during development.
 
 ## Delegation model
 
