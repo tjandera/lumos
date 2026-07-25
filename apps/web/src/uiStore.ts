@@ -64,6 +64,24 @@ interface UiStore {
   setAvgLux: (v: number) => void;
   roomStandardId: string;
   setRoomStandardId: (id: string) => void;
+
+  // --- Phase 10: realism ---
+  /** Real-time image-based ambient lighting/reflections + SSAO + bloom. Opt-in: it's
+   * heavier than the default view, which stays untouched unless this is on. */
+  enhancedRealism: boolean;
+  toggleEnhancedRealism: () => void;
+  /** One-shot high-quality capture: not offline path-traced GI, just every quality
+   * setting maxed + higher resolution, captured as a PNG. See LIGHTING_ROADMAP.md. */
+  photoRequested: boolean;
+  photoBusy: boolean;
+  photoResult: string | null;
+  requestPhoto: () => void;
+  finishPhoto: (dataUrl: string) => void;
+  clearPhotoResult: () => void;
+
+  // --- Phase 13: selected light fixture (Plan-mode editing) ---
+  selectedLightId: string | null;
+  selectLight: (id: string | null) => void;
 }
 
 export const useUiStore = create<UiStore>()((set) => ({
@@ -113,4 +131,16 @@ export const useUiStore = create<UiStore>()((set) => ({
   setAvgLux: (avgLux) => set({ avgLux }),
   roomStandardId: 'living',
   setRoomStandardId: (roomStandardId) => set({ roomStandardId }),
+
+  enhancedRealism: false,
+  toggleEnhancedRealism: () => set((s) => ({ enhancedRealism: !s.enhancedRealism })),
+  photoRequested: false,
+  photoBusy: false,
+  photoResult: null,
+  requestPhoto: () => set({ photoRequested: true, photoBusy: true, photoResult: null }),
+  finishPhoto: (photoResult) => set({ photoRequested: false, photoBusy: false, photoResult }),
+  clearPhotoResult: () => set({ photoResult: null }),
+
+  selectedLightId: null,
+  selectLight: (selectedLightId) => set({ selectedLightId }),
 }));

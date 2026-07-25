@@ -13,11 +13,21 @@ default overhead view but shows (and correctly occludes the sun/lux heatmaps) wh
 viewed from inside the room (Phase 9). Windows now carry **glass tint** (cosmetic) and a
 closeable **curtain/blind covering** that genuinely blocks daylight — closing it visibly
 shades that side of the room in the sun-exposure heatmap, not just the render (Phase 11).
+An opt-in **Realism** mode adds baked image-based ambient light/reflections (PMREM +
+RoomEnvironment) plus SSAO and a tasteful bloom — a real-time approximation of bounce
+light, not offline path tracing — and a one-shot **Photo mode** captures the current view
+at maxed-out quality/resolution as a downloadable PNG (Phase 10). The lighting panel is
+now **collapsible** (dense sections tucked away, with "Sky" and "Light fixtures" open by
+default), and fixtures can be **selected, dragged, and edited directly in the 2D plan**
+(height, Kelvin, brightness, on/off, shadow, dusk-auto, delete) the same way furniture
+already does (Phase 13).
 
-To make lighting *look* like a real room and support what real lighting *requires*, the
-gaps are: proper **fixtures**, **surface materials**, **indirect (bounce) light**,
-**daylight control** (curtains/blinds/glass), and **analysis** (is it bright enough?).
-Phased below — each keeps the 60fps budget via quality presets, with heavy realism opt-in.
+What's still open: true offline **path-traced GI** (a further, heavier realism step
+beyond Phase 10's real-time approximation), **multi-select/copy-paste** of fixtures, and
+a dedicated **before/after** comparison view — all deliberately deferred, not attempted
+here. Otherwise the core "look like a real room, and tell you if it meets real
+requirements" loop is in place. Each phase below keeps the 60fps budget via quality
+presets, with heavy realism opt-in.
 
 ---
 

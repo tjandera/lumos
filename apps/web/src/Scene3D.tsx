@@ -16,6 +16,7 @@ import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { useCollidingFurniture } from './collisions';
 import { PerfProbe } from './PerfProbe';
+import { SceneEnvironment, RealismEffects, PhotoCapture } from './Realism';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -299,6 +300,7 @@ export function Scene3D({ active }: { active: boolean }) {
   const heatmapOn = useUiStore((s) => s.heatmapOn);
   const luxOn = useUiStore((s) => s.luxOn);
   const setAvgLux = useUiStore((s) => s.setAvgLux);
+  const enhancedRealism = useUiStore((s) => s.enhancedRealism);
   const collidingIds = useCollidingFurniture(doc);
   const cam = doc.view.camera;
 
@@ -402,6 +404,8 @@ export function Scene3D({ active }: { active: boolean }) {
     >
       <ToneMapping exposure={exposure} />
       {sunMode === 'auto' && <SunAnimator enabled={playing} />}
+      {enhancedRealism && <SceneEnvironment />}
+      <PhotoCapture active={active} />
 
       <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={wx.turbidity} rayleigh={day > 0.2 ? wx.rayleigh : 3} />
       <hemisphereLight intensity={(0.18 + day * 0.5) * wx.ambientMul} color="#bcd4ff" groundColor="#3a352f" />
@@ -475,6 +479,7 @@ export function Scene3D({ active }: { active: boolean }) {
         makeDefault
       />
       <PerfProbe />
+      {enhancedRealism && <RealismEffects quality={quality} />}
     </Canvas>
   );
 }

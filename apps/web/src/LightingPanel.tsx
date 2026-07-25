@@ -60,12 +60,16 @@ function MiniSlider({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** Collapsible group — the panel accumulated a lot of sections; keep the ones you
+ * touch occasionally closed by default so the always-useful ones aren't buried. */
+function Section({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   return (
-    <div className="mt-3 border-t border-white/10 pt-2">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-white/40">{title}</div>
-      {children}
-    </div>
+    <details className="mt-3 border-t border-white/10 pt-2" open={defaultOpen}>
+      <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wider text-white/40 hover:text-white/60">
+        {title}
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
   );
 }
 
@@ -186,6 +190,13 @@ export function LightingPanel() {
   const roomStandardId = useUiStore((s) => s.roomStandardId);
   const setRoomStandardId = useUiStore((s) => s.setRoomStandardId);
   const standardLux = ROOM_STANDARDS.find((r) => r.id === roomStandardId)?.targetLux ?? 150;
+  const enhancedRealism = useUiStore((s) => s.enhancedRealism);
+  const toggleEnhancedRealism = useUiStore((s) => s.toggleEnhancedRealism);
+  const photoRequested = useUiStore((s) => s.photoRequested);
+  const photoBusy = useUiStore((s) => s.photoBusy);
+  const photoResult = useUiStore((s) => s.photoResult);
+  const requestPhoto = useUiStore((s) => s.requestPhoto);
+  const clearPhotoResult = useUiStore((s) => s.clearPhotoResult);
 
   const doc = useSceneStore((s) => s.doc);
   const edit = useSceneStore((s) => s.edit);
@@ -414,7 +425,7 @@ export function LightingPanel() {
         </>
       )}
 
-      <Section title="Sky">
+      <Section title="Sky" defaultOpen>
         <div className="flex flex-wrap gap-1">
           {(['clear', 'hazy', 'overcast', 'golden'] as Weather[]).map((w) => (
             <button key={w} className={chip(weather === w)} onClick={() => setWeather(w)}>
@@ -495,7 +506,7 @@ export function LightingPanel() {
         )}
       </Section>
 
-      <Section title="Light fixtures">
+      <Section title="Light fixtures" defaultOpen>
         <div className="flex flex-wrap gap-1">
           {(['ceiling', 'wall', 'floor', 'table'] as FixtureKind[]).map((k) => (
             <button key={k} className={chip(false)} onClick={() => addFixture(k)}>
@@ -549,6 +560,50 @@ export function LightingPanel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Realism">
+        <label className="flex items-center gap-2 text-xs text-white/60">
+          <input type="checkbox" checked={enhancedRealism} onChange={toggleEnhancedRealism} />
+          Ambient occlusion + reflections + bloom
+        </label>
+        <p className="mt-1.5 text-[11px] leading-snug text-white/40">
+          Real-time, not offline path-traced GI — heavier than the default view, so it's
+          opt-in. Full multi-bounce global illumination is a larger future step.
+        </p>
+      </Section>
+
+      <Section title="Photo mode">
+        <button
+          className={`w-full rounded-md px-2 py-1.5 text-sm ${
+            photoBusy ? 'bg-white/10 text-white/40' : 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
+          }`}
+          disabled={photoBusy}
+          onClick={requestPhoto}
+        >
+          {photoBusy ? 'Rendering…' : '📷 Render photo'}
+        </button>
+        <p className="mt-1.5 text-[11px] leading-snug text-white/40">
+          A one-shot high-quality capture — every setting maxed, higher resolution. Not
+          offline path tracing.
+        </p>
+        {photoResult && !photoRequested && (
+          <div className="mt-2">
+            <img src={photoResult} alt="Rendered photo" className="w-full rounded border border-white/15" />
+            <div className="mt-1.5 flex gap-2">
+              <a
+                href={photoResult}
+                download="interior-photo.png"
+                className="flex-1 rounded bg-white/10 px-2 py-1 text-center text-xs hover:bg-white/20"
+              >
+                Download PNG
+              </a>
+              <button className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20" onClick={clearPhotoResult}>
+                ✕
+              </button>
+            </div>
           </div>
         )}
       </Section>

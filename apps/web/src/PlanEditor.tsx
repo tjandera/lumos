@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import type { SceneDocument, Wall, Opening, Covering } from '@interior/core';
+import type { SceneDocument, Wall, Opening, Covering, LightInstance } from '@interior/core';
+import { kelvinToRgb } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
@@ -8,12 +9,15 @@ import { useCollidingFurniture } from './collisions';
 const GRID = 0.1; // snap resolution (meters)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+const FIXTURE_DOT: Record<LightInstance['kind'], string> = { ceiling: '#fbbf24', wall: '#fb923c', floor: '#facc15', table: '#fde68a' };
+
 type Tool = 'select' | 'wall';
 type Selection = { type: 'wall' | 'opening'; id: string } | null;
 type Drag =
   | { kind: 'endpoint'; wallId: string; which: 'start' | 'end'; x: number; z: number }
   | { kind: 'opening'; openingId: string; offset: number }
   | { kind: 'furniture'; id: string; x: number; z: number }
+  | { kind: 'light'; id: string; x: number; z: number }
   | null;
 
 function wallLength(w: Wall): number {
@@ -45,6 +49,8 @@ export function PlanEditor() {
   const edit = useSceneStore((s) => s.edit);
   const selectedFurnitureId = useUiStore((s) => s.selectedFurnitureId);
   const selectFurniture = useUiStore((s) => s.selectFurniture);
+  const selectedLightId = useUiStore((s) => s.selectedLightId);
+  const selectLight = useUiStore((s) => s.selectLight);
   const collidingIds = useCollidingFurniture(doc);
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -68,14 +74,21 @@ export function PlanEditor() {
     return { x: p.x, z: p.y };
   };
 
-  // Selecting one kind clears the other so only one properties panel shows.
+  // Selecting one kind clears the others so only one properties panel shows.
   const selectWallOrOpening = (s: Selection) => {
     setSel(s);
     selectFurniture(null);
+    selectLight(null);
   };
   const selectFurn = (id: string) => {
     selectFurniture(id);
     setSel(null);
+    selectLight(null);
+  };
+  const selectLightFixture = (id: string) => {
+    selectLight(id);
+    setSel(null);
+    selectFurniture(null);
   };
 
   // ---- live drag overrides (rendered before the single commit on pointer-up) ----
@@ -90,13 +103,15 @@ export function PlanEditor() {
     drag?.kind === 'opening' && drag.openingId === o.id ? drag.offset : o.offset;
   const effFurniturePos = (id: string, pos: { x: number; z: number }) =>
     drag?.kind === 'furniture' && drag.id === id ? { x: drag.x, z: drag.z } : pos;
+  const effLightPos = (id: string, pos: { x: number; z: number }) =>
+    drag?.kind === 'light' && drag.id === id ? { x: drag.x, z: drag.z } : pos;
 
   // ---- pointer handling ----
   const onPointerMove = (e: PointerEvent) => {
     if (!drag) return;
     const p = toWorld(e.clientX, e.clientY);
     if (!p) return;
-    if (drag.kind === 'endpoint' || drag.kind === 'furniture') {
+    if (drag.kind === 'endpoint' || drag.kind === 'furniture' || drag.kind === 'light') {
       setDrag({ ...drag, x: snapVal(p.x), z: snapVal(p.z) });
     } else {
       const o = doc.openings.find((x) => x.id === drag.openingId);
@@ -119,6 +134,12 @@ export function PlanEditor() {
         const f = d.furniture.find((x2) => x2.id === id);
         if (f) f.position = { x, y: f.position.y, z };
       });
+    } else if (drag.kind === 'light') {
+      const { id, x, z } = drag;
+      edit((d) => {
+        const l = d.lights.find((x2) => x2.id === id);
+        if (l) l.position = { x, y: l.position.y, z };
+      });
     } else {
       const { openingId, offset } = drag;
       edit((d) => {
@@ -133,6 +154,7 @@ export function PlanEditor() {
     if (tool !== 'wall') {
       setSel(null);
       selectFurniture(null);
+      selectLight(null);
       return;
     }
     const p = toWorld(e.clientX, e.clientY);
@@ -169,6 +191,12 @@ export function PlanEditor() {
     svgRef.current?.setPointerCapture(e.pointerId);
     selectFurn(id);
     setDrag({ kind: 'furniture', id, x: pos.x, z: pos.z });
+  };
+  const startLightDrag = (e: PointerEvent, id: string, pos: { x: number; z: number }) => {
+    e.stopPropagation();
+    svgRef.current?.setPointerCapture(e.pointerId);
+    selectLightFixture(id);
+    setDrag({ kind: 'light', id, x: pos.x, z: pos.z });
   };
 
   // ---- document mutations from the panel ----
@@ -233,6 +261,35 @@ export function PlanEditor() {
     });
     selectFurniture(null);
   };
+  const setLightHeight = (id: string, y: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l && Number.isFinite(y) && y >= 0) l.position = { ...l.position, y };
+    });
+  const setLightKelvin = (id: string, k: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) {
+        l.kelvin = k;
+        l.color = kelvinToRgb(k);
+      }
+    });
+  const setLightIntensity = (id: string, v: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) l.intensityCandela = v;
+    });
+  const setLightFlag = (id: string, field: 'on' | 'castShadow' | 'auto', v: boolean) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) l[field] = v;
+    });
+  const deleteLightFixture = (id: string) => {
+    edit((d) => {
+      d.lights = d.lights.filter((l) => l.id !== id);
+    });
+    selectLight(null);
+  };
 
   const gridLines = buildGrid(bounds);
 
@@ -263,6 +320,69 @@ export function PlanEditor() {
             onClick={() => deleteFurniture(f.id)}
           >
             Delete
+          </button>
+        </Panel>
+      );
+    }
+    if (selectedLightId) {
+      const l = doc.lights.find((x) => x.id === selectedLightId);
+      if (!l) return null;
+      return (
+        <Panel title={`${l.kind[0].toUpperCase()}${l.kind.slice(1)} fixture`}>
+          <NumberField label="Height (Y)" value={l.position.y} step={0.05} onChange={(v) => setLightHeight(l.id, v)} />
+          <label className="mt-1 flex items-center justify-between py-1 text-sm">
+            <span className="text-white/50">Kelvin</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="range"
+                min={2700}
+                max={6500}
+                step={50}
+                value={l.kelvin}
+                onChange={(e) => setLightKelvin(l.id, Number(e.target.value))}
+                className="h-1 w-20 cursor-pointer accent-amber-400"
+              />
+              <span className="font-mono text-xs text-white/70">{Math.round(l.kelvin)}K</span>
+            </span>
+          </label>
+          <label className="flex items-center justify-between py-1 text-sm">
+            <span className="text-white/50">Brightness</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={800}
+                step={10}
+                value={l.intensityCandela}
+                onChange={(e) => setLightIntensity(l.id, Number(e.target.value))}
+                className="h-1 w-20 cursor-pointer accent-amber-400"
+              />
+              <span className="font-mono text-xs text-white/70">{l.intensityCandela}</span>
+            </span>
+          </label>
+          <div className="mt-2 flex gap-3 text-sm text-white/60">
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={l.on} onChange={(e) => setLightFlag(l.id, 'on', e.target.checked)} />
+              On
+            </label>
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={l.castShadow}
+                onChange={(e) => setLightFlag(l.id, 'castShadow', e.target.checked)}
+              />
+              Shadow
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={l.auto} onChange={(e) => setLightFlag(l.id, 'auto', e.target.checked)} />
+              Auto
+            </label>
+          </div>
+          <button
+            className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`}
+            onClick={() => deleteLightFixture(l.id)}
+          >
+            Delete fixture
           </button>
         </Panel>
       );
@@ -431,6 +551,34 @@ export function PlanEditor() {
           );
         })}
 
+        {/* light fixtures */}
+        {doc.lights.map((l) => {
+          const pos = effLightPos(l.id, l.position);
+          const selected = l.id === selectedLightId;
+          return (
+            <g key={l.id} style={{ cursor: 'grab' }} onPointerDown={(e) => startLightDrag(e, l.id, l.position)}>
+              <circle
+                cx={pos.x}
+                cy={pos.z}
+                r={0.16}
+                fill={l.on ? FIXTURE_DOT[l.kind] : '#555'}
+                stroke={selected ? '#38bdf8' : '#00000055'}
+                strokeWidth={selected ? 0.04 : 0.02}
+              />
+              <text
+                x={pos.x}
+                y={pos.z - 0.26}
+                fontSize={0.2}
+                fill="#e5e7eb"
+                textAnchor="middle"
+                pointerEvents="none"
+              >
+                {l.kind}
+              </text>
+            </g>
+          );
+        })}
+
         {/* openings */}
         {doc.openings.map((o) => {
           const w = findWall(doc, o.wallId);
@@ -519,7 +667,7 @@ export function PlanEditor() {
       {panel}
 
       <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-lg bg-black/60 px-3 py-1.5 text-center text-[11px] text-white/60 backdrop-blur">
-        Drag endpoints to reshape · drag furniture to move · click to select · edits are undoable
+        Drag endpoints to reshape · drag furniture or fixtures to move · click to select · edits are undoable
       </div>
     </div>
   );

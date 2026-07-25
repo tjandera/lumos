@@ -26,6 +26,12 @@ export class ErrorBoundary extends Component<Props, State> {
           <div>
             <div className="mb-2 text-lg font-semibold">Something went wrong</div>
             <div className="max-w-md text-sm text-white/60">{this.state.error.message}</div>
+            <button
+              className="mt-4 rounded bg-white/10 px-4 py-1.5 text-sm hover:bg-white/20"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
           </div>
         </div>
       );
