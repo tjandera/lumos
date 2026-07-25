@@ -5,12 +5,16 @@ import { useGLTF } from '@react-three/drei';
 import {
   DEG2RAD,
   effectiveFixtureIntensity,
+  finishToRoughness,
+  DEFAULT_FLOOR_MATERIAL,
+  DEFAULT_CEILING_MATERIAL,
   type SceneDocument,
   type Wall,
   type Opening,
   type FurnitureInstance,
   type LightInstance,
   type FixtureKind,
+  type Material,
 } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM, type CatalogItem } from '@interior/catalog';
 import { computeWallShape, buildWallGeometry } from './wallGeometry';
@@ -42,9 +46,17 @@ export function SceneView({
   return (
     <group>
       <Floor doc={doc} />
+      <Ceiling doc={doc} />
       {doc.rooms.flatMap((room) =>
         room.walls.map((wall) => (
-          <WallMesh key={wall.id} wall={wall} openings={doc.openings} centroid={centroid} cutaway={cutaway} />
+          <WallMesh
+            key={wall.id}
+            wall={wall}
+            openings={doc.openings}
+            centroid={centroid}
+            cutaway={cutaway}
+            material={room.materials.wall}
+          />
         )),
       )}
       {doc.furniture.map((item) => (
@@ -68,11 +80,13 @@ function WallMesh({
   openings,
   centroid,
   cutaway,
+  material,
 }: {
   wall: Wall;
   openings: Opening[];
   centroid: { x: number; z: number };
   cutaway: boolean;
+  material: Material;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -120,19 +134,66 @@ function WallMesh({
       rotation={[0, rotationY, 0]}
       castShadow
       receiveShadow
-      userData={{ isWall: true }}
+      userData={{ blocksLight: true }}
     >
-      <meshStandardMaterial ref={matRef} color="#efeae2" />
+      <meshStandardMaterial ref={matRef} color={material.color} roughness={finishToRoughness(material.finish)} />
     </mesh>
   );
 }
 
 function Floor({ doc }: { doc: SceneDocument }) {
   const { center, size } = useMemo(() => footprint(doc), [doc]);
+  const material = doc.rooms[0]?.materials.floor ?? DEFAULT_FLOOR_MATERIAL;
   return (
     <mesh position={[center.x, -0.02, center.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[size.x + 0.6, size.z + 0.6]} />
-      <meshStandardMaterial color="#d9d2c7" />
+      <meshStandardMaterial color={material.color} roughness={finishToRoughness(material.finish)} />
+    </mesh>
+  );
+}
+
+/**
+ * A flat ceiling at the tallest wall's height. Visually fades when the camera rises
+ * above it (so the default elevated/orbit view isn't blocked — mirrors WallMesh's
+ * camera-relative fade) and shows when viewed from a lower, inside-the-room angle.
+ * Rendered `DoubleSide` so it reliably occludes sun/lux rays approaching from either
+ * side, independent of that visual fade.
+ */
+function Ceiling({ doc }: { doc: SceneDocument }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const { center, size } = useMemo(() => footprint(doc), [doc]);
+  const material = doc.rooms[0]?.materials.ceiling ?? DEFAULT_CEILING_MATERIAL;
+  const ceilingY = useMemo(() => {
+    const heights = doc.rooms.flatMap((r) => r.walls.map((w) => w.height));
+    return heights.length ? Math.max(...heights) : 2.7;
+  }, [doc.rooms]);
+
+  useFrame(({ camera }) => {
+    const mat = matRef.current;
+    const mesh = meshRef.current;
+    if (!mat || !mesh) return;
+    const target = camera.position.y > ceilingY - 0.15 ? 0.06 : 1;
+    mat.opacity += (target - mat.opacity) * 0.2;
+    mat.transparent = mat.opacity < 0.98;
+    mesh.castShadow = mat.opacity > 0.5;
+  });
+
+  return (
+    <mesh
+      ref={meshRef}
+      position={[center.x, ceilingY, center.z]}
+      rotation={[Math.PI / 2, 0, 0]}
+      receiveShadow
+      userData={{ blocksLight: true }}
+    >
+      <planeGeometry args={[size.x + 0.6, size.z + 0.6]} />
+      <meshStandardMaterial
+        ref={matRef}
+        color={material.color}
+        roughness={finishToRoughness(material.finish)}
+        side={THREE.DoubleSide}
+      />
     </mesh>
   );
 }

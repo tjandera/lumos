@@ -1,4 +1,11 @@
-import { CURRENT_SCHEMA_VERSION, SceneDocumentSchema, type SceneDocument } from './schema';
+import {
+  CURRENT_SCHEMA_VERSION,
+  SceneDocumentSchema,
+  DEFAULT_WALL_MATERIAL,
+  DEFAULT_FLOOR_MATERIAL,
+  DEFAULT_CEILING_MATERIAL,
+  type SceneDocument,
+} from './schema';
 
 type Migrator = (doc: Record<string, unknown>) => Record<string, unknown>;
 
@@ -38,6 +45,22 @@ const migrators: Record<number, Migrator> = {
       auto: (l.auto as boolean | undefined) ?? false,
     }));
     return { ...doc, schemaVersion: 3, lights, lightingScenes: [] };
+  },
+
+  // v3 -> v4: rooms gain `materials` (wall/floor/ceiling colour + finish). Defaults
+  // match the colours that were previously hardcoded in the renderer, so migrated
+  // documents render identically until the user changes something.
+  3: (doc) => {
+    const rest = doc as { rooms?: Array<Record<string, unknown>> };
+    const rooms = (rest.rooms ?? []).map((r) => ({
+      ...r,
+      materials: r.materials ?? {
+        wall: DEFAULT_WALL_MATERIAL,
+        floor: DEFAULT_FLOOR_MATERIAL,
+        ceiling: DEFAULT_CEILING_MATERIAL,
+      },
+    }));
+    return { ...doc, schemaVersion: 4, rooms };
   },
 };
 

@@ -35,6 +35,8 @@ interface UiStore {
   setQuality: (q: Quality) => void;
   lightingOpen: boolean;
   toggleLighting: () => void;
+  materialsOpen: boolean;
+  toggleMaterials: () => void;
 
   // --- Sun study + mood (7B/7C) ---
   /** Animate the sun across the day. */
@@ -89,6 +91,8 @@ export const useUiStore = create<UiStore>()((set) => ({
   setQuality: (quality) => set({ quality }),
   lightingOpen: false,
   toggleLighting: () => set((s) => ({ lightingOpen: !s.lightingOpen })),
+  materialsOpen: false,
+  toggleMaterials: () => set((s) => ({ materialsOpen: !s.materialsOpen })),
 
   playing: false,
   togglePlaying: () => set((s) => ({ playing: !s.playing })),

@@ -8,10 +8,12 @@ import { CatalogPanel } from './CatalogPanel';
 import { TimeOfDayBar } from './TimeOfDayBar';
 import { AIPanel } from './AIPanel';
 import { LightingPanel } from './LightingPanel';
+import { MaterialsPanel } from './MaterialsPanel';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
   const lightingOpen = useUiStore((s) => s.lightingOpen);
+  const materialsOpen = useUiStore((s) => s.materialsOpen);
   const aiEnabled = isFeatureEnabled('ai');
 
   return (
@@ -21,6 +23,7 @@ export default function App() {
       {mode === '3d' && <PerfHud />}
       {mode === '3d' && <TimeOfDayBar />}
       {mode === '3d' && lightingOpen && <LightingPanel />}
+      {mode === '3d' && materialsOpen && <MaterialsPanel />}
       <CatalogPanel />
       {aiEnabled && <AIPanel />}
       <Toolbar aiEnabled={aiEnabled} mode={mode} />
@@ -41,6 +44,8 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
   const toggleCutaway = useUiStore((s) => s.toggleCutaway);
   const lightingOpen = useUiStore((s) => s.lightingOpen);
   const toggleLighting = useUiStore((s) => s.toggleLighting);
+  const materialsOpen = useUiStore((s) => s.materialsOpen);
+  const toggleMaterials = useUiStore((s) => s.toggleMaterials);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -90,6 +95,15 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
             title="Open lighting controls"
           >
             ☀ Light
+          </button>
+          <button
+            className={`rounded-md px-2 py-1 text-xs ${
+              materialsOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
+            }`}
+            onClick={toggleMaterials}
+            title="Open wall/floor/ceiling materials"
+          >
+            🎨 Materials
           </button>
         </>
       )}

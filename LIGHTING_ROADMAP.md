@@ -4,9 +4,13 @@
 
 Natural sun (auto/manual, time/date/location/orientation, weather, exposure, warmth), a
 sun-path + compass, a solar-exposure floor heatmap, an illuminance (lux) heatmap +
-room-standard check (Phase 12), and **real fixture models** — ceiling/wall/floor/table,
+room-standard check (Phase 12), **real fixture models** — ceiling/wall/floor/table,
 each with Kelvin, brightness, on/off, cast-shadow, and dusk auto-ramp — plus a lighting
-**scenes** system (save/apply named presets + built-in Evening/Reading/Movie) (Phase 8).
+**scenes** system (save/apply named presets + built-in Evening/Reading/Movie) (Phase 8),
+and **wall/floor/ceiling materials** — paint colour + finish (matte→gloss via a tested
+roughness mapping) per surface, plus an actual **ceiling** that auto-fades from the
+default overhead view but shows (and correctly occludes the sun/lux heatmaps) when
+viewed from inside the room (Phase 9).
 
 To make lighting *look* like a real room and support what real lighting *requires*, the
 gaps are: proper **fixtures**, **surface materials**, **indirect (bounce) light**,

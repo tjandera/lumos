@@ -5,7 +5,7 @@ import { z } from 'zod';
  * migrations.ts keyed by the version it upgrades FROM. Saved and shared designs
  * are validated + migrated on load, so they survive schema evolution.
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 const Vec2Schema = z.object({ x: z.number(), z: z.number() }); // ground-plane point (meters)
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
@@ -28,10 +28,27 @@ export const OpeningSchema = z.object({
   sillHeight: z.number().nonnegative(), // meters from floor (0 for doors)
 });
 
+/** Named paint/flooring sheen — see materials.ts for the roughness each maps to. */
+export const FinishSchema = z.enum(['matte', 'eggshell', 'satin', 'gloss']);
+
+export const MaterialSchema = z.object({
+  color: z.string(), // hex, e.g. "#efeae2"
+  finish: FinishSchema.default('matte'),
+});
+
+export const DEFAULT_WALL_MATERIAL = { color: '#efeae2', finish: 'matte' } as const;
+export const DEFAULT_FLOOR_MATERIAL = { color: '#d9d2c7', finish: 'matte' } as const;
+export const DEFAULT_CEILING_MATERIAL = { color: '#f5f2ea', finish: 'matte' } as const;
+
+export const RoomMaterialsSchema = z
+  .object({ wall: MaterialSchema, floor: MaterialSchema, ceiling: MaterialSchema })
+  .default({ wall: DEFAULT_WALL_MATERIAL, floor: DEFAULT_FLOOR_MATERIAL, ceiling: DEFAULT_CEILING_MATERIAL });
+
 export const RoomSchema = z.object({
   id: z.string(),
   name: z.string(),
   walls: z.array(WallSchema),
+  materials: RoomMaterialsSchema,
 });
 
 export const FurnitureInstanceSchema = z.object({
@@ -101,6 +118,9 @@ export type Vec2 = z.infer<typeof Vec2Schema>;
 export type Vec3 = z.infer<typeof Vec3Schema>;
 export type Wall = z.infer<typeof WallSchema>;
 export type Opening = z.infer<typeof OpeningSchema>;
+export type Finish = z.infer<typeof FinishSchema>;
+export type Material = z.infer<typeof MaterialSchema>;
+export type RoomMaterials = z.infer<typeof RoomMaterialsSchema>;
 export type Room = z.infer<typeof RoomSchema>;
 export type FurnitureInstance = z.infer<typeof FurnitureInstanceSchema>;
 export type FixtureKind = z.infer<typeof FixtureKindSchema>;

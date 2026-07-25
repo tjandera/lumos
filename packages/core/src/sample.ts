@@ -1,4 +1,4 @@
-import type { SceneDocument } from './schema';
+import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema';
 
 /** Build the 4 walls of a w×d room centered at the origin. */
 function rectWalls(w: number, d: number, height: number, thickness: number) {
@@ -14,7 +14,7 @@ function rectWalls(w: number, d: number, height: number, thickness: number) {
 
 /** A simple 5m × 4m room with a couple of furniture placeholders and a lamp. */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   id: 'sample-studio',
   name: 'Sample Studio',
   site: { lat: 1.2966, lng: 103.8764, trueNorthOffsetDeg: 0 },
@@ -23,6 +23,7 @@ export const sampleScene: SceneDocument = {
       id: 'room-1',
       name: 'Living Room',
       walls: rectWalls(5, 4, 2.7, 0.12),
+      materials: { wall: DEFAULT_WALL_MATERIAL, floor: DEFAULT_FLOOR_MATERIAL, ceiling: DEFAULT_CEILING_MATERIAL },
     },
   ],
   openings: [

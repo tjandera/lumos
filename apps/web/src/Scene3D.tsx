@@ -148,7 +148,7 @@ function SolarStudy({
   useEffect(() => {
     const walls: THREE.Object3D[] = [];
     scene.traverse((o) => {
-      if (o.userData && o.userData.isWall) walls.push(o);
+      if (o.userData && o.userData.blocksLight) walls.push(o);
     });
     const samples = sunPath(lat, lng, new Date(year, month, day), offset, 30).filter((p) => p.y > 0.06);
     const N = 28;
@@ -225,7 +225,7 @@ function LuxStudy({
   useEffect(() => {
     const walls: THREE.Object3D[] = [];
     scene.traverse((o) => {
-      if (o.userData && o.userData.isWall) walls.push(o);
+      if (o.userData && o.userData.blocksLight) walls.push(o);
     });
     const N = 28;
     const data = new Uint8Array(N * N * 4);
