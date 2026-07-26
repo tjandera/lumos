@@ -12,7 +12,7 @@ import { useUiStore, type Quality } from './uiStore';
  * standard real-time approximation for one-bounce/image-based GI — full offline
  * path-traced multi-bounce GI is future work (see LIGHTING_ROADMAP.md).
  */
-export function SceneEnvironment() {
+export function SceneEnvironment({ intensity = 1 }: { intensity?: number }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
 
@@ -27,6 +27,16 @@ export function SceneEnvironment() {
       pmrem.dispose();
     };
   }, [gl, scene]);
+
+  // Separate from mounting: the environment is always present (so material finish is
+  // visible as a reflection change), but how much *ambient light* it contributes is
+  // dialled down outside Realism mode, to keep the sun/lux studies looking as tuned.
+  useEffect(() => {
+    scene.environmentIntensity = intensity;
+    return () => {
+      scene.environmentIntensity = 1;
+    };
+  }, [scene, intensity]);
 
   return null;
 }

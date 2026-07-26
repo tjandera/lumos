@@ -6,10 +6,10 @@ import type { Finish } from './schema';
  * highlight). Users pick a finish name; the renderer only needs the roughness number.
  */
 const FINISH_ROUGHNESS: Record<Finish, number> = {
-  matte: 0.9,
+  matte: 0.95,
   eggshell: 0.7,
-  satin: 0.45,
-  gloss: 0.15,
+  satin: 0.4,
+  gloss: 0.08,
 };
 
 export function finishToRoughness(finish: Finish): number {

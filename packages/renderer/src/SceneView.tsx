@@ -267,6 +267,10 @@ function FurnitureBox({
   const cat = getCatalogItem(item.catalogId) ?? DEFAULT_ITEM;
   return (
     <group
+      // Stable, addressable name so the host app can look this object up in the scene
+      // graph (`scene.getObjectByName`) and attach a transform gizmo to it, without the
+      // renderer needing to know anything about editing.
+      name={`furniture:${item.id}`}
       position={[item.position.x, item.position.y, item.position.z]}
       rotation={[0, item.rotationY * DEG2RAD, 0]}
       scale={item.scale}

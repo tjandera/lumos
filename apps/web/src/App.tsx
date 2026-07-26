@@ -1,4 +1,4 @@
-import { RefreshCw, Sun, Palette, Camera } from 'lucide-react';
+import { RefreshCw, Sun, Palette, Camera, Move, RotateCw } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -82,6 +82,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
       </button>
       {mode === '3d' && (
         <>
+          <GizmoModeToggle />
           <button
             className={`${btn} inline-flex items-center gap-1`}
             onClick={() => edit((d) => d.furniture.forEach((f) => (f.rotationY += 15)))}
@@ -134,6 +135,33 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
       >
         AI {aiEnabled ? 'on' : 'off'}
       </span>
+    </div>
+  );
+}
+
+/** Switches what the 3D transform gizmo does with the selected furniture. Only meaningful
+ * once something is selected, so it stays disabled (and says why) until then. */
+function GizmoModeToggle() {
+  const gizmoMode = useUiStore((s) => s.gizmoMode);
+  const setGizmoMode = useUiStore((s) => s.setGizmoMode);
+  const hasSelection = useUiStore((s) => s.selectedFurnitureId) !== null;
+
+  const seg = (active: boolean) =>
+    `inline-flex items-center gap-1 px-2 py-1 text-xs ${
+      active ? 'bg-sky-500/25 text-sky-200' : 'text-white/50 hover:bg-white/10'
+    } ${hasSelection ? '' : 'opacity-40'}`;
+
+  return (
+    <div
+      className="flex overflow-hidden rounded-md bg-white/10"
+      title={hasSelection ? 'What dragging the gizmo does' : 'Select a furniture item first'}
+    >
+      <button className={seg(gizmoMode === 'translate')} onClick={() => setGizmoMode('translate')}>
+        <Move size={13} /> Move
+      </button>
+      <button className={seg(gizmoMode === 'rotate')} onClick={() => setGizmoMode('rotate')}>
+        <RotateCw size={13} /> Turn
+      </button>
     </div>
   );
 }

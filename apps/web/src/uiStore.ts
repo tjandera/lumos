@@ -90,6 +90,14 @@ interface UiStore {
   planSelection: { type: 'wall' | 'opening'; id: string } | null;
   setPlanSelection: (s: { type: 'wall' | 'opening'; id: string } | null) => void;
 
+  /** Snap edits to the 0.1 m grid. Shared by the Plan editor and the 3D move gizmo so
+   * the two editors don't disagree about where things land. */
+  snapEnabled: boolean;
+  setSnapEnabled: (v: boolean) => void;
+  /** What the 3D gizmo does when furniture is selected. */
+  gizmoMode: 'translate' | 'rotate';
+  setGizmoMode: (m: 'translate' | 'rotate') => void;
+
   // --- Photo-based room import ---
   importOpen: boolean;
   toggleImport: () => void;
@@ -181,6 +189,11 @@ export const useUiStore = create<UiStore>()((set) => ({
 
   planSelection: null,
   setPlanSelection: (planSelection) => set({ planSelection }),
+
+  snapEnabled: true,
+  setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
+  gizmoMode: 'translate',
+  setGizmoMode: (gizmoMode) => set({ gizmoMode }),
 
   importOpen: false,
   toggleImport: () => set((s) => ({ importOpen: !s.importOpen })),

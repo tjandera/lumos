@@ -57,7 +57,9 @@ export function PlanEditor() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>('select');
-  const [snap, setSnap] = useState(true);
+  // Shared with the 3D move gizmo (uiStore) so both editors snap identically.
+  const snap = useUiStore((s) => s.snapEnabled);
+  const setSnap = useUiStore((s) => s.setSnapEnabled);
   const [drag, setDrag] = useState<Drag>(null);
   const [pending, setPending] = useState<{ x: number; z: number } | null>(null);
 

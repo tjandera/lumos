@@ -16,6 +16,7 @@ import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { PerfProbe } from './PerfProbe';
 import { SceneEnvironment, RealismEffects, PhotoCapture } from './Realism';
+import { FurnitureGizmo } from './FurnitureGizmo';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -402,7 +403,11 @@ export function Scene3D({ active }: { active: boolean }) {
     >
       <ToneMapping exposure={exposure} />
       {sunMode === 'auto' && <SunAnimator enabled={playing} />}
-      {enhancedRealism && <SceneEnvironment />}
+      {/* Always on: material *finish* (matte→gloss) is a roughness change, and roughness is
+          only visible as a change in what the surface reflects. With no environment there's
+          nothing to reflect, so the Materials panel's finish buttons would appear to do
+          nothing. The expensive part of realism (SSAO/bloom) stays behind the toggle. */}
+      <SceneEnvironment intensity={enhancedRealism ? 1 : 0.65} />
       <PhotoCapture active={active} />
 
       <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={wx.turbidity} rayleigh={day > 0.2 ? wx.rayleigh : 3} />
@@ -467,6 +472,7 @@ export function Scene3D({ active }: { active: boolean }) {
         onSelectFurniture={selectFurniture}
         dayFactor={day}
       />
+      <FurnitureGizmo />
       <gridHelper args={[24, 24, '#2a2a30', '#202024']} position={[0, -0.03, 0]} />
       <OrbitControls
         target={[cam.target.x, cam.target.y, cam.target.z]}
