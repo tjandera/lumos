@@ -1,5 +1,5 @@
-import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema';
-import { rectWalls } from './geometry';
+import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema.js';
+import { rectWalls } from './geometry.js';
 
 /**
  * A simple 5m × 4m room with a couple of furniture placeholders. No lights are
@@ -7,9 +7,13 @@ import { rectWalls } from './geometry';
  * + Ceiling/Wall/Floor/Table buttons), not a default that's always sitting there.
  */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 5,
-  id: 'sample-studio',
-  name: 'Sample Studio',
+  schemaVersion: 6,
+  meta: {
+    id: 'sample-studio',
+    name: 'Sample Studio',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
   site: { lat: 1.2966, lng: 103.8764, trueNorthOffsetDeg: 0 },
   rooms: [
     {

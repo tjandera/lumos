@@ -5,7 +5,7 @@ import {
   DEFAULT_FLOOR_MATERIAL,
   DEFAULT_CEILING_MATERIAL,
   type SceneDocument,
-} from './schema';
+} from './schema.js';
 
 type Migrator = (doc: Record<string, unknown>) => Record<string, unknown>;
 
@@ -74,7 +74,164 @@ const migrators: Record<number, Migrator> = {
     }));
     return { ...doc, schemaVersion: 5, openings };
   },
+
+  // v5 -> v6: identity moves off the document root into a `meta` block that also carries
+  // created/updated timestamps, so the designs API has something to list and sort on.
+  5: (doc) => {
+    const { id, name, ...rest } = doc as { id?: unknown; name?: unknown };
+    const now = new Date().toISOString();
+    return {
+      ...rest,
+      schemaVersion: 6,
+      meta: {
+        id: typeof id === 'string' ? id : randomId(),
+        name: typeof name === 'string' ? name : 'Untitled design',
+        // Unknowable for a pre-v6 document; "now" is the honest answer for both.
+        createdAt: now,
+        updatedAt: now,
+      },
+    };
+  },
 };
+
+function randomId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * Two independent codebases were merged into this one, and they both versioned their
+ * documents from 1 — so `schemaVersion: 2` is ambiguous on its own. Tell the lineages
+ * apart by *shape* instead:
+ *
+ * - This codebase's rooms hold wall SEGMENTS (`{ start, end, thickness, height }`) and
+ *   keep openings in a top-level array keyed by `wallId`.
+ * - The other lineage's rooms hold a closed POLYLINE of corner points (`{ x, y }`), with
+ *   thickness/height on the room and openings nested inside it keyed by `wallIndex`.
+ *
+ * Anything that isn't recognisably polyline-shaped is treated as this lineage, which is
+ * the safe default: the version-keyed migrator chain will reject it if it's neither.
+ */
+/** The highest schemaVersion the polyline lineage ever shipped, before the merge. */
+const POLYLINE_LINEAGE_MAX_VERSION = 2;
+
+function isPolylineLineage(doc: Record<string, unknown>): boolean {
+  const rooms = doc.rooms;
+  if (!Array.isArray(rooms) || rooms.length === 0) return false;
+  const room = rooms[0] as Record<string, unknown> | undefined;
+  if (!room || !Array.isArray(room.walls) || room.walls.length === 0) return false;
+  const wall = room.walls[0] as Record<string, unknown> | undefined;
+  // A corner point has x/y and no start/end; a segment has start/end.
+  return !!wall && 'x' in wall && 'y' in wall && !('start' in wall);
+}
+
+/**
+ * Convert a polyline-lineage document into this lineage's shape (pre-`meta`, so the
+ * normal v5 -> v6 migrator finishes the job). Corner points become explicit wall
+ * segments, which is lossless in that direction — the reverse would not be, since
+ * segments can carry per-wall thickness and height that a single room-level value can't.
+ */
+function fromPolylineLineage(doc: Record<string, unknown>): Record<string, unknown> {
+  const rooms = (doc.rooms ?? []) as Array<Record<string, unknown>>;
+  const allOpenings: Array<Record<string, unknown>> = [];
+
+  const converted = rooms.map((room) => {
+    const pts = (room.walls ?? []) as Array<{ x: number; y: number }>;
+    const thickness = typeof room.wallThickness === 'number' ? room.wallThickness : 0.12;
+    const height = typeof room.height === 'number' ? room.height : 2.7;
+    const roomId = typeof room.id === 'string' ? room.id : randomId();
+
+    // Close the polyline: segment i runs from pts[i] to pts[i+1], last wraps to pts[0].
+    // Their plan plane is x/y; ours is x/z (y is up here) — see units.ts.
+    const walls = pts.map((p, i) => {
+      const next = pts[(i + 1) % pts.length]!;
+      return {
+        id: `${roomId}-w${i}`,
+        start: { x: p.x, z: p.y },
+        end: { x: next.x, z: next.y },
+        thickness,
+        height,
+      };
+    });
+
+    for (const o of (room.openings ?? []) as Array<Record<string, unknown>>) {
+      const idx = typeof o.wallIndex === 'number' ? o.wallIndex : 0;
+      const host = walls[idx] ?? walls[0];
+      if (!host) continue;
+      allOpenings.push({
+        id: typeof o.id === 'string' ? o.id : randomId(),
+        wallId: host.id,
+        kind: o.type === 'door' ? 'door' : 'window',
+        offset: typeof o.position === 'number' ? o.position : 0,
+        width: typeof o.width === 'number' ? o.width : 1,
+        height: typeof o.height === 'number' ? o.height : 1.2,
+        sillHeight: typeof o.sillHeight === 'number' ? o.sillHeight : 0.9,
+      });
+    }
+
+    return { id: roomId, name: room.name ?? 'Room', walls };
+  });
+
+  // Their lights are a sun|lamp union. The sun isn't a fixture here — it's derived from
+  // `site` + `view.timeOfDay` — so it's folded into those and dropped from `lights`.
+  const lights = (doc.lights ?? []) as Array<Record<string, unknown>>;
+  const sun = lights.find((l) => l.type === 'sun');
+  const lamps = lights
+    .filter((l) => l.type === 'lamp')
+    .map((l) => ({
+      id: typeof l.id === 'string' ? l.id : randomId(),
+      kind: 'table',
+      position: { x: 0, y: 0.9, z: 0 }, // refined below if the host furniture is found
+      intensityCandela: typeof l.intensity === 'number' ? l.intensity : 120,
+      color: typeof l.color === 'string' ? l.color : '#ffe6b0',
+      on: l.on !== false,
+      furnitureItemId: typeof l.furnitureItemId === 'string' ? l.furnitureItemId : undefined,
+    }));
+
+  const furniture = ((doc.furniture ?? []) as Array<Record<string, unknown>>).map((f) => ({
+    id: f.id,
+    catalogId: f.catalogId,
+    position: f.position,
+    rotationY: f.rotationY,
+    dimensions: f.dimensions,
+  }));
+
+  // Put each lamp where its host furniture actually is.
+  for (const lamp of lamps) {
+    const host = furniture.find((f) => f.id === lamp.furnitureItemId);
+    const pos = host?.position as { x: number; z: number } | undefined;
+    if (pos) lamp.position = { x: pos.x, y: 0.9, z: pos.z };
+  }
+
+  const meta = (doc.meta ?? {}) as Record<string, unknown>;
+  const site = (doc.site ?? {}) as Record<string, unknown>;
+
+  return {
+    // Pre-`meta` shape on purpose: hand back to the v5 -> v6 migrator to finish.
+    schemaVersion: 5,
+    id: meta.id,
+    name: meta.name,
+    site: {
+      lat: typeof site.lat === 'number' ? site.lat : (sun?.latitude as number) ?? 0,
+      lng: typeof site.lng === 'number' ? site.lng : (sun?.longitude as number) ?? 0,
+      trueNorthOffsetDeg: typeof site.trueNorthOffsetDeg === 'number' ? site.trueNorthOffsetDeg : 0,
+    },
+    rooms: converted,
+    openings: allOpenings,
+    furniture,
+    lights: lamps,
+    view: {
+      timeOfDay: sunToIso(sun),
+      camera: { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } },
+    },
+  };
+}
+
+/** Their sun config carries `date` + `time` as separate strings; ours is one ISO stamp. */
+function sunToIso(sun: Record<string, unknown> | undefined): string {
+  const date = typeof sun?.date === 'string' && sun.date ? sun.date : '2026-06-21';
+  const time = typeof sun?.time === 'string' && sun.time ? sun.time : '16:00';
+  return `${date}T${time.length === 5 ? `${time}:00` : time}`;
+}
 
 /**
  * Upgrade any historical document to the current schema, then validate it.
@@ -90,12 +247,21 @@ export function migrateSceneDocument(input: unknown): SceneDocument {
   if (typeof rawVersion !== 'number') {
     throw new Error('Invalid scene document: schemaVersion must be a number');
   }
-  let version: number = rawVersion;
-  if (version > CURRENT_SCHEMA_VERSION) {
+  // Documents from the other merged codebase are converted into this lineage's shape
+  // first; from there the ordinary version-keyed chain takes over. The "too new to
+  // understand" guard has to run against the version as *written*, and against that
+  // lineage's own ceiling — after conversion the number means something different.
+  const polyline = isPolylineLineage(doc);
+  const ceiling = polyline ? POLYLINE_LINEAGE_MAX_VERSION : CURRENT_SCHEMA_VERSION;
+  if (rawVersion > ceiling) {
     throw new Error(
-      `Document schemaVersion ${version} is newer than supported ${CURRENT_SCHEMA_VERSION}. Update the app.`,
+      `Document schemaVersion ${rawVersion} is newer than supported ${ceiling}. Update the app.`,
     );
   }
+  if (polyline) {
+    doc = fromPolylineLineage(doc);
+  }
+  let version: number = doc.schemaVersion as number;
   while (version < CURRENT_SCHEMA_VERSION) {
     const migrate = migrators[version];
     if (!migrate) throw new Error(`No migrator registered from schemaVersion ${version}`);

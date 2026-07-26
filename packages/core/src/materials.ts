@@ -1,4 +1,4 @@
-import type { Finish } from './schema';
+import type { Finish } from './schema.js';
 
 /**
  * PBR roughness for each named paint/flooring finish — matte scatters light broadly

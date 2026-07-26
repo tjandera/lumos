@@ -1,55 +1,159 @@
-import Fastify, { type FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { materializeRoomPhoto } from '@interior/core';
-import { analyzeRoomPhoto, RoomPhotoConfigError, RoomPhotoUpstreamError } from './openai';
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import Fastify, { type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
+import type { ChatProvider } from "@interior/ai";
+import { catalogRoutes } from "./catalog/routes.js";
+import { catalogItems } from "./catalog/data.js";
+import { designRoutes } from "./designs/routes.js";
+import { FileDesignStorage } from "./designs/fileStorage.js";
+import { PostgresDesignStorage } from "./designs/postgresStorage.js";
+import type { DesignStorage } from "./designs/storage.js";
+import { FileOwnershipStore } from "./designs/ownership.js";
+import { PostgresOwnershipStore } from "./designs/postgresOwnershipStore.js";
+import type { OwnershipStore } from "./designs/ownership.js";
+import { shareRoutes } from "./share/routes.js";
+import { FileShareTokenStore } from "./share/tokenStore.js";
+import { PostgresShareTokenStore } from "./share/postgresTokenStore.js";
+import type { ShareTokenStore } from "./share/tokenStore.js";
+import { registerSession, resolveSessionSecret } from "./auth/session.js";
+import { aiRoutes } from "./ai/routes.js";
+import { createRateLimiter, type RateLimitOptions } from "./ai/rateLimit.js";
+import { buildAiProvider, isFeatureAiEnabled } from "./ai/provider.js";
+import { createPgPool, ensurePgSchema, pingPgPool, type PgPool } from "./db/pool.js";
+import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
 
-const AnalyzeBodySchema = z.object({
-  imageDataUrl: z
-    .string()
-    .startsWith('data:image/', 'imageDataUrl must be a data: URL (e.g. from FileReader.readAsDataURL)'),
-});
+const here = path.dirname(fileURLToPath(import.meta.url));
 
-export interface AppConfig {
-  apiKey: string | undefined;
-  model: string;
-  mock: boolean;
+export const defaultDataDir = path.join(here, "..", "data", "designs");
+
+export interface BuildAppOptions {
+  /** Directory to persist design JSON files in. Defaults to apps/api/data/designs. */
+  dataDir?: string;
+  /** Vite dev origin(s) to allow via CORS. */
+  corsOrigin?: string | string[];
+  logger?: boolean;
+  storage?: DesignStorage;
+  /** Override the ownership store (tests). Defaults to a file store under `dataDir`. */
+  ownership?: OwnershipStore;
+  /** Override the share-token store (tests). Defaults to a file store under `dataDir`. */
+  tokens?: ShareTokenStore;
+  /**
+   * Postgres connection string. Defaults to `process.env.DATABASE_URL`. When
+   * set (and `storage`/`ownership`/`tokens` aren't individually overridden),
+   * designs/ownership/share-tokens persist to Postgres instead of the
+   * file-backed JSON stores - see `db/pool.ts` for the connection pooling
+   * and schema bootstrap.
+   */
+  databaseUrl?: string;
+  /**
+   * Inject a pre-built `pg.Pool` directly instead of creating one from
+   * `databaseUrl` (tests use a pg-mem-backed pool here). When provided, the
+   * pool's lifecycle is owned by the caller - `buildApp` will not `end()`
+   * it on `app.close()`.
+   */
+  pgPool?: PgPool;
+  /** Override `SESSION_SECRET` (tests). Defaults to the env-driven `resolveSessionSecret()`. */
+  sessionSecret?: string;
+  /** Override the `FEATURE_AI` env flag (tests). */
+  featureAi?: boolean;
+  /** Override the chat provider (tests use `MockProvider`). Defaults to env-driven selection. */
+  aiProvider?: ChatProvider;
+  /** Override the AI route's rate-limit window/max (tests). */
+  aiRateLimit?: RateLimitOptions;
+  /**
+   * Photo -> 3D room import (vision model proposes, `materializeRoomPhoto` places).
+   * Omitted in tests that don't exercise it; the routes still register and report
+   * themselves unavailable via `/room-photo/status`.
+   */
+  roomPhoto?: RoomPhotoConfig;
 }
 
-/** Builds the Fastify instance without binding a port, so tests can exercise routes via
- * `.inject()`. Config is passed in rather than read from `process.env` directly, so tests
- * don't need to touch real env vars. */
-export function buildApp(config: AppConfig): FastifyInstance {
-  // No CORS plugin: apps/web's Vite dev server proxies /api/* to this server (see
-  // apps/web/vite.config.ts), so browser requests are same-origin in dev. A real
-  // deployment would serve both from one origin/reverse-proxy too.
-  const app = Fastify({ bodyLimit: 20 * 1024 * 1024 }); // base64 photos inflate ~33% over their file size
+export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: options.logger ?? true, bodyLimit: 20 * 1024 * 1024 });
 
-  app.get('/status', async () => ({
-    available: config.mock || Boolean(config.apiKey),
-    mock: config.mock,
-  }));
-
-  app.post('/analyze-room-photo', async (request, reply) => {
-    const body = AnalyzeBodySchema.safeParse(request.body);
-    if (!body.success) {
-      return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Invalid request body' });
-    }
-
-    try {
-      const proposal = await analyzeRoomPhoto(body.data.imageDataUrl, config);
-      const { doc, skippedFurnitureCategories, notes } = materializeRoomPhoto(proposal);
-      return reply.send({ doc, skippedFurnitureCategories, notes });
-    } catch (err) {
-      if (err instanceof RoomPhotoConfigError) {
-        return reply.code(503).send({ error: err.message });
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      // Allow any local origin, or fallback to configured origin
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        cb(null, true);
+        return;
       }
-      if (err instanceof RoomPhotoUpstreamError) {
-        return reply.code(502).send({ error: err.message });
-      }
-      request.log.error(err);
-      return reply.code(500).send({ error: 'Unexpected server error' });
-    }
+      cb(null, options.corsOrigin ?? process.env.VITE_ORIGIN ?? "http://localhost:5173");
+    },
+    // The session cookie (anonymous ownership) and share-link management
+    // both ride on cookies, which fetch() only sends/receives cross-origin
+    // when both the client passes `credentials: "include"` AND the server
+    // echoes back a specific (non-wildcard) origin with this flag set.
+    credentials: true
   });
+
+  // Anonymous-ownership session: must be registered directly on the
+  // top-level `app` (not via app.register(fn)) so its onRequest hook and
+  // `request.ownerId` decoration apply to every route below, including ones
+  // registered in their own plugin scopes (designRoutes, shareRoutes, ...).
+  await registerSession(app, { secret: options.sessionSecret ?? resolveSessionSecret() });
+
+  // Storage backend selection: an injected pool wins (tests), then
+  // `databaseUrl`/`DATABASE_URL` selects Postgres, else fall back to the
+  // file-backed JSON stores (the default, unchanged behavior).
+  const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
+  const ownsPool = !options.pgPool && !!databaseUrl;
+  const pgPool = options.pgPool ?? (databaseUrl ? createPgPool(databaseUrl) : undefined);
+
+  if (pgPool) {
+    try {
+      await pingPgPool(pgPool);
+      await ensurePgSchema(pgPool);
+    } catch (err) {
+      // Don't leak the pool we just created if startup fails before the
+      // `onClose` hook below gets a chance to register.
+      if (ownsPool) await pgPool.end().catch(() => {});
+      throw err;
+    }
+  }
+
+  const storage =
+    options.storage ?? (pgPool ? new PostgresDesignStorage(pgPool) : new FileDesignStorage(options.dataDir ?? defaultDataDir));
+  const ownership =
+    options.ownership ?? (pgPool ? new PostgresOwnershipStore(pgPool) : new FileOwnershipStore(options.dataDir ?? defaultDataDir));
+  const tokens =
+    options.tokens ?? (pgPool ? new PostgresShareTokenStore(pgPool) : new FileShareTokenStore(options.dataDir ?? defaultDataDir));
+
+  // Graceful shutdown: close the pool we created (not one injected by a
+  // caller/test, which owns its own lifecycle) when the Fastify instance
+  // closes, so `app.close()` / SIGTERM doesn't leak connections.
+  if (pgPool && ownsPool) {
+    app.addHook("onClose", async () => {
+      await pgPool.end();
+    });
+  }
+
+  app.get("/health", async () => {
+    return { ok: true };
+  });
+
+  await app.register(catalogRoutes);
+  await app.register(roomPhotoRoutes, {
+    config: options.roomPhoto ?? { apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL ?? "gpt-5.6", mock: process.env.ROOM_PHOTO_MOCK === "true" }
+  });
+  await app.register(designRoutes, { storage, ownership, tokens });
+  await app.register(shareRoutes, { storage, tokens });
+
+  const featureAi = options.featureAi ?? isFeatureAiEnabled();
+  const provider = featureAi ? (options.aiProvider ?? buildAiProvider()) : undefined;
+  const providerKind: "mock" | "llm" | null = !featureAi ? null : provider?.constructor.name === "MockProvider" ? "mock" : "llm";
+
+  // `/ai/status` is always registered (regardless of the flag) so the web
+  // app can tell "assistant off" apart from "assistant on, offline mock"
+  // apart from "assistant on, real LLM" without probing `/ai/chat` itself.
+  app.get("/ai/status", async () => {
+    return { enabled: featureAi, provider: providerKind };
+  });
+  if (featureAi && provider) {
+    const checkRateLimit = createRateLimiter(options.aiRateLimit);
+    await app.register(aiRoutes, { provider, catalog: catalogItems, checkRateLimit });
+  }
 
   return app;
 }

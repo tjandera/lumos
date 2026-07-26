@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { rotateBuilding } from './transform';
-import { sampleScene } from './sample';
-import type { SceneDocument } from './schema';
+import { rotateBuilding } from './transform.js';
+import { sampleScene } from './sample.js';
+import type { SceneDocument } from './schema.js';
 
 function wallLength(w: { start: { x: number; z: number }; end: { x: number; z: number } }): number {
   return Math.hypot(w.end.x - w.start.x, w.end.z - w.start.z);

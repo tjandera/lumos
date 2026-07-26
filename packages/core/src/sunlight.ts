@@ -1,5 +1,5 @@
 import SunCalc from 'suncalc';
-import { DEG2RAD } from './units';
+import { DEG2RAD } from './units.js';
 
 export interface SunVector {
   /** Unit vector pointing toward the sun, world space (+Z north, +X east, +Y up). */

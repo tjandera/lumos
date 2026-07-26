@@ -1,0 +1,78 @@
+# Local/self-hosted quickstart. Build context for both services is the repo
+# root (see apps/api/Dockerfile and apps/web/Dockerfile for why). Not
+# runtime-verified in this sandbox — review before relying on it in prod;
+# see the delivering agent's report for what to double-check.
+#
+# Usage:
+#   docker compose up --build
+#   -> web:  http://localhost:8080
+#   -> api:  http://localhost:3001
+#
+# Storage backend: the api service's DATABASE_URL below points at the
+# bundled `postgres` service by default, so `docker compose up` gives you
+# Postgres-backed storage out of the box. Unset/blank DATABASE_URL (e.g.
+# `echo "DATABASE_URL=" >> .env`) falls back to the file-backed JSON store
+# (the `designs-data` volume) instead — see README.md's "Storage backends"
+# note. Either way the `postgres` service still starts; remove it from
+# `depends_on`/comment it out if you don't want it running at all.
+#
+# Env vars: create a `.env` next to this file (gitignored) to override any
+# of the values below — see README.md for the full table.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-interior}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-interior}
+      POSTGRES_DB: ${POSTGRES_DB:-interior}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-interior} -d ${POSTGRES_DB:-interior}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "${API_PORT:-3001}:3001"
+    environment:
+      PORT: "3001"
+      VITE_ORIGIN: ${VITE_ORIGIN:-http://localhost:8080}
+      FEATURE_AI: ${FEATURE_AI:-false}
+      AI_PROVIDER_BASE_URL: ${AI_PROVIDER_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_PROVIDER_API_KEY: ${AI_PROVIDER_API_KEY:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      DATABASE_URL: ${DATABASE_URL-postgresql://${POSTGRES_USER:-interior}:${POSTGRES_PASSWORD:-interior}@postgres:5432/${POSTGRES_DB:-interior}}
+    volumes:
+      - designs-data:/app/apps/api/data/designs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+        VITE_FEATURE_AI: ${FEATURE_AI:-false}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  # Only used when DATABASE_URL is unset/blank (file-backed fallback) - see
+  # apps/api/src/app.ts `defaultDataDir`. Harmless/unused otherwise.
+  designs-data:
+  # Persists the bundled Postgres service's data directory across restarts.
+  postgres-data:

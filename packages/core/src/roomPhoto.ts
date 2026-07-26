@@ -10,12 +10,12 @@ import {
   type FurnitureInstance,
   type LightInstance,
   type Finish,
-} from './schema';
-import { rectWalls } from './geometry';
-import { FIXTURE_MOUNT_HEIGHT } from './fixtures';
-import { kelvinToRgb } from './color';
-import { computeCollisions, type CollisionItem } from './collision';
-import { suggestLayout, type LayoutBounds } from './autolayout';
+} from './schema.js';
+import { rectWalls } from './geometry.js';
+import { FIXTURE_MOUNT_HEIGHT } from './fixtures.js';
+import { kelvinToRgb } from './color.js';
+import { computeCollisions, type CollisionItem } from './collision.js';
+import { suggestLayout, type LayoutBounds } from './autolayout.js';
 
 /**
  * What a vision model may propose after looking at a room photo. Deliberately narrow —
@@ -263,10 +263,10 @@ export function materializeRoomPhoto(proposal: RoomPhotoProposal): RoomPhotoResu
   });
 
   const name = proposal.roomLabel?.trim() || 'Room from Photo';
+  const nowIso = new Date().toISOString();
   const doc: SceneDocument = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    id: randomId(),
-    name,
+    meta: { id: randomId(), name, createdAt: nowIso, updatedAt: nowIso },
     // Placeholder — the import flow prompts the user to set their real location and
     // orientation right after this, same PII handling as everywhere else (coarse
     // lat/lng only, no address ever enters the document).

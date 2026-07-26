@@ -1,28 +1,39 @@
-import { buildApp } from './app';
+import { buildApp } from "./app.js";
 
+// Node 22 has this built in, so the server reads apps/api/.env without a dotenv
+// dependency. Missing file is fine — every value it supplies has a default.
 try {
-  // Node 20.6+/22 built-in — no dotenv dependency needed. Fine if there's no .env
-  // (e.g. a deployment that injects real env vars directly).
-  process.loadEnvFile();
+  process.loadEnvFile(new URL("../.env", import.meta.url).pathname);
 } catch {
-  // no .env file — that's fine, env vars may already be set another way
+  // no .env present
 }
 
-const PORT = Number(process.env.PORT) || 8787;
-const MOCK = process.env.ROOM_PHOTO_MOCK === 'true';
+const port = Number(process.env.PORT ?? 8787);
 
-const app = buildApp({
-  apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.OPENAI_MODEL || 'gpt-5.6',
-  mock: MOCK,
-});
+buildApp()
+  .then(async (app) => {
+    await app.listen({ port, host: "0.0.0.0" });
 
-app
-  .listen({ port: PORT, host: '127.0.0.1' })
-  .then(() => {
-    console.log(`[api] listening on http://127.0.0.1:${PORT}${MOCK ? ' (ROOM_PHOTO_MOCK on)' : ''}`);
+    // Graceful shutdown: closing the Fastify instance runs its `onClose`
+    // hooks, which includes ending the Postgres pool (see app.ts) when
+    // DATABASE_URL is set - avoids leaking connections on redeploy/restart.
+    const shutdown = (signal: string) => {
+      app.log.info(`${signal} received, shutting down`);
+      app
+        .close()
+        .then(() => process.exit(0))
+        .catch((err) => {
+          app.log.error(err);
+          process.exit(1);
+        });
+    };
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   })
   .catch((err) => {
-    console.error('[api] failed to start', err);
+    // Covers both listen() failures and buildApp()'s startup Postgres ping
+    // (see db/pool.ts `pingPgPool`) - either way, fail fast with a clear
+    // message rather than starting in a broken state.
+    console.error("Failed to start API server:", err instanceof Error ? err.message : err);
     process.exit(1);
   });
