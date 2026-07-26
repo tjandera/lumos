@@ -1,4 +1,11 @@
-import { CURRENT_SCHEMA_VERSION, SceneDocumentSchema, type SceneDocument } from './schema';
+import {
+  CURRENT_SCHEMA_VERSION,
+  SceneDocumentSchema,
+  DEFAULT_WALL_MATERIAL,
+  DEFAULT_FLOOR_MATERIAL,
+  DEFAULT_CEILING_MATERIAL,
+  type SceneDocument,
+} from './schema';
 
 type Migrator = (doc: Record<string, unknown>) => Record<string, unknown>;
 
@@ -21,6 +28,51 @@ const migrators: Record<number, Migrator> = {
         trueNorthOffsetDeg: 0,
       },
     };
+  },
+
+  // v2 -> v3: lights gain a fixture `kind` (mount + model), `kelvin` (colour
+  // temperature, kept in sync with the existing `color` hex), `on`, and `castShadow`/
+  // `auto`. Every v2 light was rendered as a small warm table lamp, so that's the
+  // safe default. The document also gains `lightingScenes` (saved presets), empty.
+  2: (doc) => {
+    const rest = doc as { lights?: Array<Record<string, unknown>> };
+    const lights = (rest.lights ?? []).map((l) => ({
+      ...l, // preserve id/position/intensityCandela/color as-is
+      kind: 'table', // v2's `kind` was always the literal 'lamp' — not a valid v3 FixtureKind
+      kelvin: (l.kelvin as number | undefined) ?? 2700,
+      on: (l.on as boolean | undefined) ?? true,
+      castShadow: (l.castShadow as boolean | undefined) ?? true,
+      auto: (l.auto as boolean | undefined) ?? false,
+    }));
+    return { ...doc, schemaVersion: 3, lights, lightingScenes: [] };
+  },
+
+  // v3 -> v4: rooms gain `materials` (wall/floor/ceiling colour + finish). Defaults
+  // match the colours that were previously hardcoded in the renderer, so migrated
+  // documents render identically until the user changes something.
+  3: (doc) => {
+    const rest = doc as { rooms?: Array<Record<string, unknown>> };
+    const rooms = (rest.rooms ?? []).map((r) => ({
+      ...r,
+      materials: r.materials ?? {
+        wall: DEFAULT_WALL_MATERIAL,
+        floor: DEFAULT_FLOOR_MATERIAL,
+        ceiling: DEFAULT_CEILING_MATERIAL,
+      },
+    }));
+    return { ...doc, schemaVersion: 4, rooms };
+  },
+
+  // v4 -> v5: openings gain `glassTint` (cosmetic) and `covering` (the actual
+  // daylight control — open by default, so existing designs behave unchanged).
+  4: (doc) => {
+    const rest = doc as { openings?: Array<Record<string, unknown>> };
+    const openings = (rest.openings ?? []).map((o) => ({
+      ...o,
+      glassTint: o.glassTint ?? 0.06,
+      covering: o.covering ?? { type: 'none', state: 'open' },
+    }));
+    return { ...doc, schemaVersion: 5, openings };
   },
 };
 

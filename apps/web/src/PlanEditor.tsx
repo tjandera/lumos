@@ -1,12 +1,16 @@
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import type { SceneDocument, Wall, Opening } from '@interior/core';
+import { RotateCcw, RotateCw } from 'lucide-react';
+import type { SceneDocument, Wall, Opening, Covering, LightInstance } from '@interior/core';
+import { kelvinToRgb, rotateBuilding } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
-import { useCollidingFurniture } from './collisions';
+import { FurnitureIcon } from './furnitureIcons';
 
 const GRID = 0.1; // snap resolution (meters)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+const FIXTURE_DOT: Record<LightInstance['kind'], string> = { ceiling: '#fbbf24', wall: '#fb923c', floor: '#facc15', table: '#fde68a' };
 
 type Tool = 'select' | 'wall';
 type Selection = { type: 'wall' | 'opening'; id: string } | null;
@@ -14,6 +18,7 @@ type Drag =
   | { kind: 'endpoint'; wallId: string; which: 'start' | 'end'; x: number; z: number }
   | { kind: 'opening'; openingId: string; offset: number }
   | { kind: 'furniture'; id: string; x: number; z: number }
+  | { kind: 'light'; id: string; x: number; z: number }
   | null;
 
 function wallLength(w: Wall): number {
@@ -45,12 +50,14 @@ export function PlanEditor() {
   const edit = useSceneStore((s) => s.edit);
   const selectedFurnitureId = useUiStore((s) => s.selectedFurnitureId);
   const selectFurniture = useUiStore((s) => s.selectFurniture);
-  const collidingIds = useCollidingFurniture(doc);
+  const selectedLightId = useUiStore((s) => s.selectedLightId);
+  const selectLight = useUiStore((s) => s.selectLight);
+  const sel = useUiStore((s) => s.planSelection);
+  const setSel = useUiStore((s) => s.setPlanSelection);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>('select');
   const [snap, setSnap] = useState(true);
-  const [sel, setSel] = useState<Selection>(null); // wall / opening (furniture lives in uiStore)
   const [drag, setDrag] = useState<Drag>(null);
   const [pending, setPending] = useState<{ x: number; z: number } | null>(null);
 
@@ -68,14 +75,21 @@ export function PlanEditor() {
     return { x: p.x, z: p.y };
   };
 
-  // Selecting one kind clears the other so only one properties panel shows.
+  // Selecting one kind clears the others so only one properties panel shows.
   const selectWallOrOpening = (s: Selection) => {
     setSel(s);
     selectFurniture(null);
+    selectLight(null);
   };
   const selectFurn = (id: string) => {
     selectFurniture(id);
     setSel(null);
+    selectLight(null);
+  };
+  const selectLightFixture = (id: string) => {
+    selectLight(id);
+    setSel(null);
+    selectFurniture(null);
   };
 
   // ---- live drag overrides (rendered before the single commit on pointer-up) ----
@@ -90,13 +104,15 @@ export function PlanEditor() {
     drag?.kind === 'opening' && drag.openingId === o.id ? drag.offset : o.offset;
   const effFurniturePos = (id: string, pos: { x: number; z: number }) =>
     drag?.kind === 'furniture' && drag.id === id ? { x: drag.x, z: drag.z } : pos;
+  const effLightPos = (id: string, pos: { x: number; z: number }) =>
+    drag?.kind === 'light' && drag.id === id ? { x: drag.x, z: drag.z } : pos;
 
   // ---- pointer handling ----
   const onPointerMove = (e: PointerEvent) => {
     if (!drag) return;
     const p = toWorld(e.clientX, e.clientY);
     if (!p) return;
-    if (drag.kind === 'endpoint' || drag.kind === 'furniture') {
+    if (drag.kind === 'endpoint' || drag.kind === 'furniture' || drag.kind === 'light') {
       setDrag({ ...drag, x: snapVal(p.x), z: snapVal(p.z) });
     } else {
       const o = doc.openings.find((x) => x.id === drag.openingId);
@@ -119,6 +135,12 @@ export function PlanEditor() {
         const f = d.furniture.find((x2) => x2.id === id);
         if (f) f.position = { x, y: f.position.y, z };
       });
+    } else if (drag.kind === 'light') {
+      const { id, x, z } = drag;
+      edit((d) => {
+        const l = d.lights.find((x2) => x2.id === id);
+        if (l) l.position = { x, y: l.position.y, z };
+      });
     } else {
       const { openingId, offset } = drag;
       edit((d) => {
@@ -133,6 +155,7 @@ export function PlanEditor() {
     if (tool !== 'wall') {
       setSel(null);
       selectFurniture(null);
+      selectLight(null);
       return;
     }
     const p = toWorld(e.clientX, e.clientY);
@@ -170,6 +193,12 @@ export function PlanEditor() {
     selectFurn(id);
     setDrag({ kind: 'furniture', id, x: pos.x, z: pos.z });
   };
+  const startLightDrag = (e: PointerEvent, id: string, pos: { x: number; z: number }) => {
+    e.stopPropagation();
+    svgRef.current?.setPointerCapture(e.pointerId);
+    selectLightFixture(id);
+    setDrag({ kind: 'light', id, x: pos.x, z: pos.z });
+  };
 
   // ---- document mutations from the panel ----
   const addOpening = (wallId: string, kind: Opening['kind']) =>
@@ -185,6 +214,8 @@ export function PlanEditor() {
         width,
         height: kind === 'door' ? 2.1 : 1.2,
         sillHeight: kind === 'door' ? 0 : 0.9,
+        glassTint: 0.06,
+        covering: { type: 'none', state: 'open' },
       });
     });
   const deleteWall = (id: string) => {
@@ -210,6 +241,16 @@ export function PlanEditor() {
       const o = d.openings.find((x) => x.id === id);
       if (o && Number.isFinite(value) && value > 0) o.width = value;
     });
+  const setGlassTint = (id: string, value: number) =>
+    edit((d) => {
+      const o = d.openings.find((x) => x.id === id);
+      if (o) o.glassTint = value;
+    });
+  const setCovering = (id: string, covering: Partial<Covering>) =>
+    edit((d) => {
+      const o = d.openings.find((x) => x.id === id);
+      if (o) Object.assign(o.covering, covering);
+    });
   const rotateFurniture = (id: string, delta: number) =>
     edit((d) => {
       const f = d.furniture.find((x) => x.id === id);
@@ -220,6 +261,48 @@ export function PlanEditor() {
       d.furniture = d.furniture.filter((f) => f.id !== id);
     });
     selectFurniture(null);
+  };
+  const setLightHeight = (id: string, y: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l && Number.isFinite(y) && y >= 0) l.position = { ...l.position, y };
+    });
+  const setLightKelvin = (id: string, k: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) {
+        l.kelvin = k;
+        l.color = kelvinToRgb(k);
+      }
+    });
+  const setLightIntensity = (id: string, v: number) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) l.intensityCandela = v;
+    });
+  const setLightFlag = (id: string, field: 'on' | 'castShadow' | 'auto', v: boolean) =>
+    edit((d) => {
+      const l = d.lights.find((x) => x.id === id);
+      if (l) l[field] = v;
+    });
+  const deleteLightFixture = (id: string) => {
+    edit((d) => {
+      d.lights = d.lights.filter((l) => l.id !== id);
+    });
+    selectLight(null);
+  };
+
+  // Rigidly spins the whole floor plan (walls, furniture, fixtures) around the room
+  // center — e.g. the initial sketch turned out to face the wrong way. Site orientation
+  // (trueNorthOffsetDeg) is untouched on purpose: it's the fixed compass the room now
+  // sits differently within, which is exactly the point.
+  const rotateWholeBuilding = (deg: number) => {
+    const rotated = rotateBuilding(doc, deg);
+    edit((d) => {
+      d.rooms = rotated.rooms;
+      d.furniture = rotated.furniture;
+      d.lights = rotated.lights;
+    });
   };
 
   const gridLines = buildGrid(bounds);
@@ -238,19 +321,81 @@ export function PlanEditor() {
           </Field>
           <Field label="Rotation">{Math.round(f.rotationY)}°</Field>
           <div className="mt-2 flex gap-2">
-            <button className={btn} onClick={() => rotateFurniture(f.id, -15)}>
-              ⟲ 15°
+            <button className={`${btn} inline-flex items-center gap-1`} onClick={() => rotateFurniture(f.id, -15)}>
+              <RotateCcw size={13} /> 15°
             </button>
-            <button className={btn} onClick={() => rotateFurniture(f.id, 15)}>
-              ⟳ 15°
+            <button className={`${btn} inline-flex items-center gap-1`} onClick={() => rotateFurniture(f.id, 15)}>
+              <RotateCw size={13} /> 15°
             </button>
           </div>
-          {collidingIds.has(f.id) && <div className="mt-2 text-[11px] text-red-300">Overlapping another item</div>}
           <button
             className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`}
             onClick={() => deleteFurniture(f.id)}
           >
             Delete
+          </button>
+        </Panel>
+      );
+    }
+    if (selectedLightId) {
+      const l = doc.lights.find((x) => x.id === selectedLightId);
+      if (!l) return null;
+      return (
+        <Panel title={`${l.kind[0].toUpperCase()}${l.kind.slice(1)} fixture`}>
+          <NumberField label="Height (Y)" value={l.position.y} step={0.05} onChange={(v) => setLightHeight(l.id, v)} />
+          <label className="mt-1 flex items-center justify-between py-1 text-sm">
+            <span className="text-white/50">Kelvin</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="range"
+                min={2700}
+                max={6500}
+                step={50}
+                value={l.kelvin}
+                onChange={(e) => setLightKelvin(l.id, Number(e.target.value))}
+                className="h-1 w-20 cursor-pointer accent-amber-400"
+              />
+              <span className="font-mono text-xs text-white/70">{Math.round(l.kelvin)}K</span>
+            </span>
+          </label>
+          <label className="flex items-center justify-between py-1 text-sm">
+            <span className="text-white/50">Brightness</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={800}
+                step={10}
+                value={l.intensityCandela}
+                onChange={(e) => setLightIntensity(l.id, Number(e.target.value))}
+                className="h-1 w-20 cursor-pointer accent-amber-400"
+              />
+              <span className="font-mono text-xs text-white/70">{l.intensityCandela}</span>
+            </span>
+          </label>
+          <div className="mt-2 flex gap-3 text-sm text-white/60">
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={l.on} onChange={(e) => setLightFlag(l.id, 'on', e.target.checked)} />
+              On
+            </label>
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={l.castShadow}
+                onChange={(e) => setLightFlag(l.id, 'castShadow', e.target.checked)}
+              />
+              Shadow
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={l.auto} onChange={(e) => setLightFlag(l.id, 'auto', e.target.checked)} />
+              Auto
+            </label>
+          </div>
+          <button
+            className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`}
+            onClick={() => deleteLightFixture(l.id)}
+          >
+            Delete fixture
           </button>
         </Panel>
       );
@@ -284,6 +429,49 @@ export function PlanEditor() {
         <Panel title={o.kind === 'door' ? 'Door' : 'Window'}>
           <Field label="Offset">{o.offset.toFixed(2)} m</Field>
           <NumberField label="Width" value={o.width} step={0.05} onChange={(v) => setOpeningWidth(o.id, v)} />
+          {o.kind === 'window' && (
+            <>
+              <label className="mt-2 block text-sm">
+                <div className="mb-0.5 flex justify-between text-white/50">
+                  <span>Glass tint</span>
+                  <span className="font-mono text-white/70">{Math.round(o.glassTint * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={o.glassTint}
+                  onChange={(e) => setGlassTint(o.id, Number(e.target.value))}
+                  className="h-1 w-full cursor-pointer accent-sky-400"
+                />
+              </label>
+              <div className="mt-2 text-sm text-white/50">Covering</div>
+              <div className="mt-1 flex gap-1">
+                {(['none', 'curtains', 'blinds'] as Covering['type'][]).map((t) => (
+                  <button
+                    key={t}
+                    className={`rounded px-2 py-0.5 text-[11px] ${
+                      o.covering.type === t ? 'bg-sky-500/25 text-sky-200' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                    }`}
+                    onClick={() => setCovering(o.id, { type: t })}
+                  >
+                    {t === 'none' ? 'None' : t[0].toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {o.covering.type !== 'none' && (
+                <label className="mt-2 flex items-center gap-2 text-sm text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={o.covering.state === 'closed'}
+                    onChange={(e) => setCovering(o.id, { state: e.target.checked ? 'closed' : 'open' })}
+                  />
+                  Closed (blocks daylight)
+                </label>
+              )}
+            </>
+          )}
           <button className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`} onClick={() => deleteOpening(o.id)}>
             Delete {o.kind}
           </button>
@@ -351,7 +539,6 @@ export function PlanEditor() {
           const pos = effFurniturePos(f.id, f.position);
           const w = cat.width * f.scale;
           const d = cat.depth * f.scale;
-          const colliding = collidingIds.has(f.id);
           const selected = f.id === selectedFurnitureId;
           return (
             <g
@@ -360,17 +547,59 @@ export function PlanEditor() {
               style={{ cursor: 'grab' }}
               onPointerDown={(e) => startFurnitureDrag(e, f.id, f.position)}
             >
-              <rect
-                x={-w / 2}
-                y={-d / 2}
-                width={w}
-                height={d}
-                fill={colliding ? 'rgba(239,68,68,0.28)' : 'rgba(255,255,255,0.10)'}
-                stroke={colliding ? '#ef4444' : selected ? '#38bdf8' : '#aeb6c2'}
-                strokeWidth={selected ? 0.05 : 0.03}
-              />
-              <text x={0} y={0} fontSize={0.22} fill="#e5e7eb" textAnchor="middle" dominantBaseline="middle" pointerEvents="none">
+              {/* full-footprint hit area — the icon shape below doesn't always fill every corner */}
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="transparent" />
+              <FurnitureIcon catalogId={f.catalogId} w={w} d={d} fill={cat.color} stroke={selected ? '#38bdf8' : '#20232b'} />
+              {selected && (
+                <rect
+                  x={-w / 2}
+                  y={-d / 2}
+                  width={w}
+                  height={d}
+                  rx={Math.min(w, d) * 0.08}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth={0.045}
+                />
+              )}
+              <text
+                x={0}
+                y={d / 2 + 0.16}
+                fontSize={0.16}
+                fill="#e5e7eb"
+                textAnchor="middle"
+                dominantBaseline="hanging"
+                pointerEvents="none"
+              >
                 {cat.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* light fixtures */}
+        {doc.lights.map((l) => {
+          const pos = effLightPos(l.id, l.position);
+          const selected = l.id === selectedLightId;
+          return (
+            <g key={l.id} style={{ cursor: 'grab' }} onPointerDown={(e) => startLightDrag(e, l.id, l.position)}>
+              <circle
+                cx={pos.x}
+                cy={pos.z}
+                r={0.16}
+                fill={l.on ? FIXTURE_DOT[l.kind] : '#555'}
+                stroke={selected ? '#38bdf8' : '#00000055'}
+                strokeWidth={selected ? 0.04 : 0.02}
+              />
+              <text
+                x={pos.x}
+                y={pos.z - 0.26}
+                fontSize={0.2}
+                fill="#e5e7eb"
+                textAnchor="middle"
+                pointerEvents="none"
+              >
+                {l.kind}
               </text>
             </g>
           );
@@ -459,12 +688,13 @@ export function PlanEditor() {
         setSnap={setSnap}
         pending={!!pending}
         cancelPending={() => setPending(null)}
+        onRotateBuilding={rotateWholeBuilding}
       />
 
       {panel}
 
       <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-lg bg-black/60 px-3 py-1.5 text-center text-[11px] text-white/60 backdrop-blur">
-        Drag endpoints to reshape · drag furniture to move · click to select · edits are undoable
+        Drag endpoints to reshape · drag furniture or fixtures to move · click to select · edits are undoable
       </div>
     </div>
   );
@@ -477,6 +707,7 @@ function PlanTools({
   setSnap,
   pending,
   cancelPending,
+  onRotateBuilding,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -484,7 +715,9 @@ function PlanTools({
   setSnap: (v: boolean) => void;
   pending: boolean;
   cancelPending: () => void;
+  onRotateBuilding: (deg: number) => void;
 }) {
+  const [customDeg, setCustomDeg] = useState('45');
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
   return (
@@ -511,6 +744,38 @@ function PlanTools({
         <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
         snap 0.1m
       </label>
+      <span className="h-4 w-px bg-white/15" />
+      <span className="text-[11px] text-white/50">Rotate building</span>
+      <button
+        className="rounded-md bg-white/10 p-1 hover:bg-white/20"
+        title="Rotate the whole building 90° counterclockwise"
+        onClick={() => onRotateBuilding(-90)}
+      >
+        <RotateCcw size={14} />
+      </button>
+      <button
+        className="rounded-md bg-white/10 p-1 hover:bg-white/20"
+        title="Rotate the whole building 90° clockwise"
+        onClick={() => onRotateBuilding(90)}
+      >
+        <RotateCw size={14} />
+      </button>
+      <input
+        type="number"
+        value={customDeg}
+        onChange={(e) => setCustomDeg(e.target.value)}
+        className="w-14 rounded bg-white/10 px-1.5 py-1 text-right font-mono text-xs [color-scheme:dark]"
+        title="Custom rotation angle (degrees)"
+      />
+      <button
+        className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+        onClick={() => {
+          const v = Number(customDeg);
+          if (Number.isFinite(v) && v !== 0) onRotateBuilding(v);
+        }}
+      >
+        Apply
+      </button>
     </div>
   );
 }

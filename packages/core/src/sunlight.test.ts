@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sunVector, sunFromAngles, sunPath } from './sunlight';
+import { sunVector, sunFromAngles, sunPath, daylightTimes } from './sunlight';
 
 // New York City.
 const NY = { lat: 40.7128, lng: -74.006 };
@@ -55,5 +55,15 @@ describe('sunPath', () => {
     expect(pts.length).toBeGreaterThan(10);
     expect(pts.every((p) => p.y > -0.05)).toBe(true);
     expect(Math.max(...pts.map((p) => p.y))).toBeGreaterThan(0.9);
+  });
+});
+
+describe('daylightTimes', () => {
+  it('gives a long summer day in NY, sunrise before sunset', () => {
+    const t = daylightTimes(NY.lat, NY.lng, new Date('2026-06-21T12:00:00'));
+    expect(t.sunrise).toBeTruthy();
+    expect(t.sunset).toBeTruthy();
+    expect(t.dayLengthHours).toBeGreaterThan(13); // ~15h at the solstice
+    if (t.sunrise && t.sunset) expect(t.sunrise.getTime()).toBeLessThan(t.sunset.getTime());
   });
 });

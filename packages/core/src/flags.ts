@@ -4,10 +4,11 @@
  * everything else asks `isFeatureEnabled`. Defaults are all-off so a missing flag
  * never silently ships an unfinished feature.
  */
-export type FeatureName = 'ai';
+export type FeatureName = 'ai' | 'roomPhoto';
 
 const defaults: Record<FeatureName, boolean> = {
   ai: false,
+  roomPhoto: false,
 };
 
 let overrides: Partial<Record<FeatureName, boolean>> = {};

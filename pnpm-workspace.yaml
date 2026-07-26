@@ -3,7 +3,7 @@ packages:
   - "packages/*"
 
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 
 # esbuild ships a platform binary via its install script; allow it to build.
 # (Vite and Vitest depend on esbuild.)

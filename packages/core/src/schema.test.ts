@@ -42,6 +42,77 @@ describe('migrations', () => {
     expect('location' in migrated).toBe(false);
   });
 
+  it('upgrades a v2 document, defaulting fixtures to a table lamp and adding lightingScenes', () => {
+    const legacyV2 = {
+      schemaVersion: 2,
+      id: 'old2',
+      name: 'Old Doc v2',
+      site: { lat: 1, lng: 2, trueNorthOffsetDeg: 0 },
+      rooms: [],
+      openings: [],
+      furniture: [],
+      lights: [{ id: 'lamp-1', kind: 'lamp', position: { x: 0, y: 1, z: 0 }, intensityCandela: 200, color: '#ffe6b0' }],
+      view: {
+        timeOfDay: '2026-01-01T12:00:00',
+        camera: { position: { x: 1, y: 1, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+      },
+    };
+    const migrated = migrateSceneDocument(legacyV2);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.lightingScenes).toEqual([]);
+    expect(migrated.lights[0]).toMatchObject({ kind: 'table', kelvin: 2700, on: true, castShadow: true, auto: false });
+    expect(migrated.lights[0].color).toBe('#ffe6b0'); // preserved, not overwritten
+  });
+
+  it('upgrades a v3 document, defaulting room materials to match the old hardcoded colours', () => {
+    const legacyV3 = {
+      schemaVersion: 3,
+      id: 'old3',
+      name: 'Old Doc v3',
+      site: { lat: 1, lng: 2, trueNorthOffsetDeg: 0 },
+      rooms: [{ id: 'room-1', name: 'Room', walls: [] }], // no `materials` yet
+      openings: [],
+      furniture: [],
+      lights: [],
+      lightingScenes: [],
+      view: {
+        timeOfDay: '2026-01-01T12:00:00',
+        camera: { position: { x: 1, y: 1, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+      },
+    };
+    const migrated = migrateSceneDocument(legacyV3);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.rooms[0].materials).toEqual({
+      wall: { color: '#efeae2', finish: 'matte' },
+      floor: { color: '#d9d2c7', finish: 'matte' },
+      ceiling: { color: '#f5f2ea', finish: 'matte' },
+    });
+  });
+
+  it('upgrades a v4 document, defaulting window glass tint + an open covering', () => {
+    const legacyV4 = {
+      schemaVersion: 4,
+      id: 'old4',
+      name: 'Old Doc v4',
+      site: { lat: 1, lng: 2, trueNorthOffsetDeg: 0 },
+      rooms: [],
+      openings: [
+        { id: 'win-1', wallId: 'wall-S', kind: 'window', offset: 0, width: 1, height: 1, sillHeight: 0.9 },
+      ],
+      furniture: [],
+      lights: [],
+      lightingScenes: [],
+      view: {
+        timeOfDay: '2026-01-01T12:00:00',
+        camera: { position: { x: 1, y: 1, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+      },
+    };
+    const migrated = migrateSceneDocument(legacyV4);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.openings[0].glassTint).toBe(0.06);
+    expect(migrated.openings[0].covering).toEqual({ type: 'none', state: 'open' });
+  });
+
   it('leaves a current document unchanged', () => {
     expect(migrateSceneDocument(sampleScene)).toEqual(sampleScene);
   });

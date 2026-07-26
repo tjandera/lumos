@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export type ViewMode = '3d' | 'plan';
 export type SunMode = 'auto' | 'manual';
 export type Quality = 'low' | 'med' | 'high';
+export type Weather = 'clear' | 'hazy' | 'overcast' | 'golden';
 
 interface UiStore {
   /** Which editor is showing: the 3D scene or the 2D floor plan. */
@@ -19,7 +20,6 @@ interface UiStore {
   setTimeMinutes: (m: number) => void;
 
   // --- Lighting ---
-  /** Auto = sun from time + location; Manual = sun from azimuth/elevation. */
   sunMode: SunMode;
   setSunMode: (m: SunMode) => void;
   sunAzimuthDeg: number;
@@ -35,6 +35,87 @@ interface UiStore {
   setQuality: (q: Quality) => void;
   lightingOpen: boolean;
   toggleLighting: () => void;
+  setLightingOpen: (v: boolean) => void;
+  materialsOpen: boolean;
+  toggleMaterials: () => void;
+
+  // --- Sun study + mood (7B/7C) ---
+  /** Animate the sun across the day. */
+  playing: boolean;
+  togglePlaying: () => void;
+  setPlaying: (v: boolean) => void;
+  /** Overlay summer + winter sun paths. */
+  showSeasons: boolean;
+  toggleSeasons: () => void;
+  weather: Weather;
+  setWeather: (w: Weather) => void;
+  /** Render exposure (ACES tone mapping). */
+  exposure: number;
+  setExposure: (v: number) => void;
+  /** Sun colour temperature: −1 cool → +1 warm. */
+  sunWarmth: number;
+  setSunWarmth: (v: number) => void;
+  /** Solar-exposure heatmap on the floor. */
+  heatmapOn: boolean;
+  toggleHeatmap: () => void;
+  /** Illuminance (lux) heatmap + analysis. */
+  luxOn: boolean;
+  toggleLux: () => void;
+  avgLux: number;
+  setAvgLux: (v: number) => void;
+  roomStandardId: string;
+  setRoomStandardId: (id: string) => void;
+
+  // --- Phase 10: realism ---
+  /** Real-time image-based ambient lighting/reflections + SSAO + bloom. Opt-in: it's
+   * heavier than the default view, which stays untouched unless this is on. */
+  enhancedRealism: boolean;
+  toggleEnhancedRealism: () => void;
+  /** One-shot high-quality capture: not offline path-traced GI, just every quality
+   * setting maxed + higher resolution, captured as a PNG. See LIGHTING_ROADMAP.md. */
+  photoRequested: boolean;
+  photoBusy: boolean;
+  photoResult: string | null;
+  requestPhoto: () => void;
+  finishPhoto: (dataUrl: string) => void;
+  clearPhotoResult: () => void;
+
+  // --- Phase 13: selected light fixture (Plan-mode editing) ---
+  selectedLightId: string | null;
+  selectLight: (id: string | null) => void;
+
+  /** Selected wall/opening in the Plan editor — lives here (not local component state)
+   * so a single global keyboard-shortcut handler can act on whichever kind of thing is
+   * currently selected. */
+  planSelection: { type: 'wall' | 'opening'; id: string } | null;
+  setPlanSelection: (s: { type: 'wall' | 'opening'; id: string } | null) => void;
+
+  // --- Photo-based room import ---
+  importOpen: boolean;
+  toggleImport: () => void;
+  importBusy: boolean;
+  importError: string | null;
+  /** The uploaded photo (data URL), kept around so it can be pinned as a reference
+   * while refining the generated room — not persisted with the scene document. */
+  referencePhoto: string | null;
+  showReferencePhoto: boolean;
+  toggleReferencePhoto: () => void;
+  /** True right after a successful import, until the guided location/orientation step
+   * is acknowledged — forces those Lighting-panel sections open once. */
+  justImportedRoom: boolean;
+  /** Furniture the last import couldn't match to the catalog, and the model's own notes
+   * — surfaced once as a dismissible summary. */
+  importSkipped: string[];
+  importNotes: string | null;
+  /** GPS coordinates read client-side from the uploaded photo's EXIF, if present —
+   * never sent anywhere, only offered as a one-click prefill for the site location. */
+  photoGps: { lat: number; lng: number } | null;
+  setPhotoGps: (gps: { lat: number; lng: number } | null) => void;
+  startImportRequest: () => void;
+  importSucceeded: (result: { photoDataUrl: string; skipped: string[]; notes?: string }) => void;
+  importFailed: (message: string) => void;
+  dismissJustImported: () => void;
+  dismissImportSummary: () => void;
 }
 
 export const useUiStore = create<UiStore>()((set) => ({
@@ -62,4 +143,69 @@ export const useUiStore = create<UiStore>()((set) => ({
   setQuality: (quality) => set({ quality }),
   lightingOpen: false,
   toggleLighting: () => set((s) => ({ lightingOpen: !s.lightingOpen })),
+  setLightingOpen: (lightingOpen) => set({ lightingOpen }),
+  materialsOpen: false,
+  toggleMaterials: () => set((s) => ({ materialsOpen: !s.materialsOpen })),
+
+  playing: false,
+  togglePlaying: () => set((s) => ({ playing: !s.playing })),
+  setPlaying: (playing) => set({ playing }),
+  showSeasons: false,
+  toggleSeasons: () => set((s) => ({ showSeasons: !s.showSeasons })),
+  weather: 'clear',
+  setWeather: (weather) => set({ weather }),
+  exposure: 1,
+  setExposure: (exposure) => set({ exposure }),
+  sunWarmth: 0,
+  setSunWarmth: (sunWarmth) => set({ sunWarmth }),
+  heatmapOn: false,
+  toggleHeatmap: () => set((s) => ({ heatmapOn: !s.heatmapOn })),
+  luxOn: false,
+  toggleLux: () => set((s) => ({ luxOn: !s.luxOn })),
+  avgLux: 0,
+  setAvgLux: (avgLux) => set({ avgLux }),
+  roomStandardId: 'living',
+  setRoomStandardId: (roomStandardId) => set({ roomStandardId }),
+
+  enhancedRealism: false,
+  toggleEnhancedRealism: () => set((s) => ({ enhancedRealism: !s.enhancedRealism })),
+  photoRequested: false,
+  photoBusy: false,
+  photoResult: null,
+  requestPhoto: () => set({ photoRequested: true, photoBusy: true, photoResult: null }),
+  finishPhoto: (photoResult) => set({ photoRequested: false, photoBusy: false, photoResult }),
+  clearPhotoResult: () => set({ photoResult: null }),
+
+  selectedLightId: null,
+  selectLight: (selectedLightId) => set({ selectedLightId }),
+
+  planSelection: null,
+  setPlanSelection: (planSelection) => set({ planSelection }),
+
+  importOpen: false,
+  toggleImport: () => set((s) => ({ importOpen: !s.importOpen })),
+  importBusy: false,
+  importError: null,
+  referencePhoto: null,
+  showReferencePhoto: false,
+  toggleReferencePhoto: () => set((s) => ({ showReferencePhoto: !s.showReferencePhoto })),
+  justImportedRoom: false,
+  importSkipped: [],
+  importNotes: null,
+  photoGps: null,
+  setPhotoGps: (photoGps) => set({ photoGps }),
+  startImportRequest: () => set({ importBusy: true, importError: null }),
+  importSucceeded: ({ photoDataUrl, skipped, notes }) =>
+    set({
+      importBusy: false,
+      importOpen: false,
+      referencePhoto: photoDataUrl,
+      showReferencePhoto: true,
+      justImportedRoom: true,
+      importSkipped: skipped,
+      importNotes: notes ?? null,
+    }),
+  importFailed: (importError) => set({ importBusy: false, importError }),
+  dismissJustImported: () => set({ justImportedRoom: false }),
+  dismissImportSummary: () => set({ importSkipped: [], importNotes: null }),
 }));

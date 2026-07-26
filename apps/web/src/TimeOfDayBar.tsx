@@ -1,3 +1,4 @@
+import { Sun } from 'lucide-react';
 import { useUiStore } from './uiStore';
 
 function fmt(mins: number): string {
@@ -12,7 +13,9 @@ export function TimeOfDayBar() {
   const setTimeMinutes = useUiStore((s) => s.setTimeMinutes);
   return (
     <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-black/60 px-4 py-2 text-white shadow-lg backdrop-blur">
-      <span className="text-xs text-white/50">☀ Time of day</span>
+      <span className="inline-flex items-center gap-1 text-xs text-white/50">
+        <Sun size={12} /> Time of day
+      </span>
       <input
         type="range"
         min={0}

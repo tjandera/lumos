@@ -1,3 +1,4 @@
+import { RefreshCw, Sun, Palette, Camera } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -8,11 +9,19 @@ import { CatalogPanel } from './CatalogPanel';
 import { TimeOfDayBar } from './TimeOfDayBar';
 import { AIPanel } from './AIPanel';
 import { LightingPanel } from './LightingPanel';
+import { MaterialsPanel } from './MaterialsPanel';
+import { RoomImportPanel } from './RoomImportPanel';
+import { ReferencePhotoPanel } from './ReferencePhotoPanel';
+import { ImportSummaryBanner } from './ImportSummaryBanner';
+import { useGlobalShortcuts } from './useGlobalShortcuts';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
   const lightingOpen = useUiStore((s) => s.lightingOpen);
+  const materialsOpen = useUiStore((s) => s.materialsOpen);
   const aiEnabled = isFeatureEnabled('ai');
+  const roomPhotoEnabled = isFeatureEnabled('roomPhoto');
+  useGlobalShortcuts();
 
   return (
     <div className="relative h-full w-full bg-neutral-900">
@@ -21,14 +30,18 @@ export default function App() {
       {mode === '3d' && <PerfHud />}
       {mode === '3d' && <TimeOfDayBar />}
       {mode === '3d' && lightingOpen && <LightingPanel />}
+      {mode === '3d' && materialsOpen && <MaterialsPanel />}
       <CatalogPanel />
       {aiEnabled && <AIPanel />}
-      <Toolbar aiEnabled={aiEnabled} mode={mode} />
+      {roomPhotoEnabled && <RoomImportPanel />}
+      <ReferencePhotoPanel />
+      {roomPhotoEnabled && <ImportSummaryBanner />}
+      <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );
 }
 
-function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
+function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; roomPhotoEnabled: boolean; mode: ViewMode }) {
   const setMode = useUiStore((s) => s.setMode);
   const name = useSceneStore((s) => s.doc.name);
   const canUndo = useSceneStore((s) => s.canUndo);
@@ -41,6 +54,9 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
   const toggleCutaway = useUiStore((s) => s.toggleCutaway);
   const lightingOpen = useUiStore((s) => s.lightingOpen);
   const toggleLighting = useUiStore((s) => s.toggleLighting);
+  const materialsOpen = useUiStore((s) => s.materialsOpen);
+  const toggleMaterials = useUiStore((s) => s.toggleMaterials);
+  const toggleImport = useUiStore((s) => s.toggleImport);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -67,11 +83,11 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
       {mode === '3d' && (
         <>
           <button
-            className={btn}
+            className={`${btn} inline-flex items-center gap-1`}
             onClick={() => edit((d) => d.furniture.forEach((f) => (f.rotationY += 15)))}
             title="Demo edit: rotate all furniture 15° — recorded as one undoable patch"
           >
-            Nudge ↻
+            <RefreshCw size={13} /> Nudge
           </button>
           <button
             className={`rounded-md px-2 py-1 text-xs ${
@@ -83,17 +99,31 @@ function Toolbar({ aiEnabled, mode }: { aiEnabled: boolean; mode: ViewMode }) {
             Cutaway {cutaway ? 'on' : 'off'}
           </button>
           <button
-            className={`rounded-md px-2 py-1 text-xs ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
               lightingOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleLighting}
             title="Open lighting controls"
           >
-            ☀ Light
+            <Sun size={13} /> Light
+          </button>
+          <button
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+              materialsOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
+            }`}
+            onClick={toggleMaterials}
+            title="Open wall/floor/ceiling materials"
+          >
+            <Palette size={13} /> Materials
           </button>
         </>
       )}
       <span className="text-white/25">·</span>
+      {roomPhotoEnabled && (
+        <button className={`${btn} inline-flex items-center gap-1`} onClick={toggleImport} title="Generate a room from an uploaded photo">
+          <Camera size={13} /> Import room
+        </button>
+      )}
       <button className={btn} onClick={reset} title="Discard changes and reload the sample scene">
         Reset
       </button>

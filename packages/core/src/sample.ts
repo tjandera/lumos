@@ -1,20 +1,13 @@
-import type { SceneDocument } from './schema';
+import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema';
+import { rectWalls } from './geometry';
 
-/** Build the 4 walls of a w×d room centered at the origin. */
-function rectWalls(w: number, d: number, height: number, thickness: number) {
-  const hw = w / 2;
-  const hd = d / 2;
-  return [
-    { id: 'wall-N', start: { x: -hw, z: -hd }, end: { x: hw, z: -hd }, thickness, height },
-    { id: 'wall-S', start: { x: -hw, z: hd }, end: { x: hw, z: hd }, thickness, height },
-    { id: 'wall-W', start: { x: -hw, z: -hd }, end: { x: -hw, z: hd }, thickness, height },
-    { id: 'wall-E', start: { x: hw, z: -hd }, end: { x: hw, z: hd }, thickness, height },
-  ];
-}
-
-/** A simple 5m × 4m room with a couple of furniture placeholders and a lamp. */
+/**
+ * A simple 5m × 4m room with a couple of furniture placeholders. No lights are
+ * pre-placed — fixtures are something the user adds deliberately (Lighting panel's
+ * + Ceiling/Wall/Floor/Table buttons), not a default that's always sitting there.
+ */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 2,
+  schemaVersion: 5,
   id: 'sample-studio',
   name: 'Sample Studio',
   site: { lat: 1.2966, lng: 103.8764, trueNorthOffsetDeg: 0 },
@@ -23,19 +16,39 @@ export const sampleScene: SceneDocument = {
       id: 'room-1',
       name: 'Living Room',
       walls: rectWalls(5, 4, 2.7, 0.12),
+      materials: { wall: DEFAULT_WALL_MATERIAL, floor: DEFAULT_FLOOR_MATERIAL, ceiling: DEFAULT_CEILING_MATERIAL },
     },
   ],
   openings: [
-    { id: 'win-1', wallId: 'wall-S', kind: 'window', offset: 1.7, width: 1.6, height: 1.2, sillHeight: 0.9 },
-    { id: 'door-1', wallId: 'wall-W', kind: 'door', offset: 0.4, width: 0.9, height: 2.1, sillHeight: 0 },
+    {
+      id: 'win-1',
+      wallId: 'wall-S',
+      kind: 'window',
+      offset: 1.7,
+      width: 1.6,
+      height: 1.2,
+      sillHeight: 0.9,
+      glassTint: 0.06,
+      covering: { type: 'curtains', state: 'open' },
+    },
+    {
+      id: 'door-1',
+      wallId: 'wall-W',
+      kind: 'door',
+      offset: 0.4,
+      width: 0.9,
+      height: 2.1,
+      sillHeight: 0,
+      glassTint: 0.06,
+      covering: { type: 'none', state: 'open' },
+    },
   ],
   furniture: [
     { id: 'f-sofa', catalogId: 'sofa-2seat', position: { x: 0, y: 0, z: -1.3 }, rotationY: 0, scale: 1 },
     { id: 'f-table', catalogId: 'coffee-table', position: { x: 0, y: 0, z: -0.2 }, rotationY: 0, scale: 1 },
   ],
-  lights: [
-    { id: 'lamp-1', kind: 'lamp', position: { x: 1.6, y: 1.4, z: -1.6 }, intensityCandela: 200, color: '#ffe6b0' },
-  ],
+  lights: [],
+  lightingScenes: [],
   view: {
     timeOfDay: '2026-06-21T16:00:00',
     camera: { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } },

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "/Users/matth/Developer/interior_design/interior_design", "--filter", "@interior/web", "dev"],
+      "port": 5173
+    }
+  ]
+}
