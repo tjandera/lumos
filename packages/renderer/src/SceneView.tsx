@@ -28,7 +28,6 @@ export interface SceneViewProps {
   doc: SceneDocument;
   cutaway?: boolean;
   selectedFurnitureId?: string | null;
-  collidingIds?: Set<string>;
   onSelectFurniture?: (id: string) => void;
   /** 0 (night) .. 1 (full daylight) — drives fixtures with `auto` dusk-ramping on. */
   dayFactor?: number;
@@ -38,7 +37,6 @@ export function SceneView({
   doc,
   cutaway = false,
   selectedFurnitureId = null,
-  collidingIds,
   onSelectFurniture,
   dayFactor = 0,
 }: SceneViewProps) {
@@ -66,13 +64,7 @@ export function SceneView({
           return wall ? <WindowFill key={o.id} opening={o} wall={wall} /> : null;
         })}
       {doc.furniture.map((item) => (
-        <FurnitureBox
-          key={item.id}
-          item={item}
-          selected={item.id === selectedFurnitureId}
-          colliding={collidingIds?.has(item.id) ?? false}
-          onSelect={onSelectFurniture}
-        />
+        <FurnitureBox key={item.id} item={item} selected={item.id === selectedFurnitureId} onSelect={onSelectFurniture} />
       ))}
       {doc.lights.map((light) => (
         <Fixture key={light.id} light={light} dayFactor={dayFactor} />
@@ -266,12 +258,10 @@ function findWallById(doc: SceneDocument, wallId: string): Wall | undefined {
 function FurnitureBox({
   item,
   selected,
-  colliding,
   onSelect,
 }: {
   item: FurnitureInstance;
   selected: boolean;
-  colliding: boolean;
   onSelect?: (id: string) => void;
 }) {
   const cat = getCatalogItem(item.catalogId) ?? DEFAULT_ITEM;
@@ -292,7 +282,7 @@ function FurnitureBox({
       ) : (
         <PlaceholderBox cat={cat} />
       )}
-      {(selected || colliding) && <HighlightBox cat={cat} colliding={colliding} />}
+      {selected && <HighlightBox cat={cat} />}
     </group>
   );
 }
@@ -307,17 +297,14 @@ function PlaceholderBox({ cat }: { cat: CatalogItem }) {
   );
 }
 
-/** Translucent overlay for selection (blue) / collision (red) — works over any model. */
-function HighlightBox({ cat, colliding }: { cat: CatalogItem; colliding: boolean }) {
+/** Translucent blue overlay for the selected item — works over any model. Furniture is
+ * free to overlap (e.g. a rug under a table); this is purely a selection indicator, not
+ * a collision warning. */
+function HighlightBox({ cat }: { cat: CatalogItem }) {
   return (
     <mesh position={[0, cat.height / 2, 0]}>
       <boxGeometry args={[cat.width * 1.05, cat.height * 1.05, cat.depth * 1.05]} />
-      <meshBasicMaterial
-        color={colliding ? '#ef4444' : '#38bdf8'}
-        transparent
-        opacity={colliding ? 0.3 : 0.16}
-        depthWrite={false}
-      />
+      <meshBasicMaterial color="#38bdf8" transparent opacity={0.16} depthWrite={false} />
     </mesh>
   );
 }

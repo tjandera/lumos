@@ -13,7 +13,7 @@ const MOCK = process.env.ROOM_PHOTO_MOCK === 'true';
 
 const app = buildApp({
   apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.OPENAI_MODEL || 'gpt-4o',
+  model: process.env.OPENAI_MODEL || 'gpt-5.6',
   mock: MOCK,
 });
 

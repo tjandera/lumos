@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { gps } from 'exifr';
 import { analyzeRoomPhoto, checkRoomPhotoStatus } from './api';
 import { useSceneStore } from './store';
@@ -86,7 +87,7 @@ export function RoomImportPanel() {
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold uppercase tracking-wider text-white/70">Create room from photo</div>
           <button className="text-white/40 hover:text-white/70" onClick={close}>
-            ✕
+            <X size={16} />
           </button>
         </div>
 

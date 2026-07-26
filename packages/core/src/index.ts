@@ -11,5 +11,6 @@ export * from './color';
 export * from './materials';
 export * from './geometry';
 export * from './fixtures';
+export * from './transform';
 export * from './sample';
 export * from './roomPhoto';

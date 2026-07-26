@@ -10,6 +10,10 @@ export class RoomPhotoUpstreamError extends Error {}
 
 const PROMPT = `You are analyzing a single photo of a room to help build an approximate 3D model of it for testing natural and artificial lighting. You are NOT measuring the room precisely — you are making an experienced, reasonable estimate a person will sanity-check and adjust by hand afterward. Prefer common, ordinary values when uncertain (most living rooms are roughly 3-6 meters per side; ceilings are usually 2.4-3m) rather than extreme guesses.
 
+To estimate scale, anchor off a known reference object rather than guessing distances cold: a standard door is about 2.0-2.05m tall and 0.8-0.9m wide, a standard window sill sits around 0.8-0.9m up, an average dining chair seat is about 0.45m off the floor, and a light switch or power outlet sits roughly 1.1m / 0.3m up respectively. If one of these is visible, use it to calibrate everything else in the shot (room width, furniture size, ceiling height) instead of estimating each in isolation. Use converging perspective lines (where the floor meets the walls, the ceiling line, the far corner) to judge the room's proportions, not just what looks "about right" in isolation.
+
+Look carefully before answering: count actual distinct pieces of furniture and fixtures rather than a rough impression, note which wall each window/door is actually on relative to the others, and describe wall/floor color as what's actually in the photo (including any strong color cast from the room's own lighting) rather than a generic default.
+
 Respond with ONLY a single JSON object (no prose, no markdown fences) with exactly this shape:
 
 {
@@ -97,13 +101,16 @@ export async function analyzeRoomPhoto(imageDataUrl: string, deps: AnalyzeRoomPh
     const completion = await client.chat.completions.create({
       model: deps.model,
       response_format: { type: 'json_object' },
-      max_tokens: 1500,
+      max_tokens: 2200,
       messages: [
         {
           role: 'user',
           content: [
             { type: 'text', text: PROMPT },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
+            // 'high' detail spends more tokens per image but matters a lot here — the
+            // model needs to actually make out proportions, wall lines, and small
+            // furniture, not just get the gist of the room.
+            { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
           ],
         },
       ],

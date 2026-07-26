@@ -14,7 +14,6 @@ import {
 } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
-import { useCollidingFurniture } from './collisions';
 import { PerfProbe } from './PerfProbe';
 import { SceneEnvironment, RealismEffects, PhotoCapture } from './Realism';
 
@@ -301,7 +300,6 @@ export function Scene3D({ active }: { active: boolean }) {
   const luxOn = useUiStore((s) => s.luxOn);
   const setAvgLux = useUiStore((s) => s.setAvgLux);
   const enhancedRealism = useUiStore((s) => s.enhancedRealism);
-  const collidingIds = useCollidingFurniture(doc);
   const cam = doc.view.camera;
 
   const lampSamples = useMemo<LampSample[]>(
@@ -466,7 +464,6 @@ export function Scene3D({ active }: { active: boolean }) {
         doc={doc}
         cutaway={cutaway}
         selectedFurnitureId={selectedFurnitureId}
-        collidingIds={collidingIds}
         onSelectFurniture={selectFurniture}
         dayFactor={day}
       />

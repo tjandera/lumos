@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useUiStore } from './uiStore';
 
 /** The photo a room was imported from, pinned so it can be compared against while
@@ -18,10 +19,10 @@ export function ReferencePhotoPanel() {
         <span>Reference photo</span>
         <div className="flex gap-2">
           <button className="hover:text-white/70" onClick={() => setCollapsed((v) => !v)}>
-            {collapsed ? '▢' : '—'}
+            {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
           <button className="hover:text-white/70" onClick={toggleReferencePhoto}>
-            ✕
+            <X size={13} />
           </button>
         </div>
       </div>

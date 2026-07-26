@@ -1,3 +1,4 @@
+import { RefreshCw, Sun, Palette, Camera } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -12,6 +13,7 @@ import { MaterialsPanel } from './MaterialsPanel';
 import { RoomImportPanel } from './RoomImportPanel';
 import { ReferencePhotoPanel } from './ReferencePhotoPanel';
 import { ImportSummaryBanner } from './ImportSummaryBanner';
+import { useGlobalShortcuts } from './useGlobalShortcuts';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -19,6 +21,7 @@ export default function App() {
   const materialsOpen = useUiStore((s) => s.materialsOpen);
   const aiEnabled = isFeatureEnabled('ai');
   const roomPhotoEnabled = isFeatureEnabled('roomPhoto');
+  useGlobalShortcuts();
 
   return (
     <div className="relative h-full w-full bg-neutral-900">
@@ -80,11 +83,11 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
       {mode === '3d' && (
         <>
           <button
-            className={btn}
+            className={`${btn} inline-flex items-center gap-1`}
             onClick={() => edit((d) => d.furniture.forEach((f) => (f.rotationY += 15)))}
             title="Demo edit: rotate all furniture 15° — recorded as one undoable patch"
           >
-            Nudge ↻
+            <RefreshCw size={13} /> Nudge
           </button>
           <button
             className={`rounded-md px-2 py-1 text-xs ${
@@ -96,29 +99,29 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
             Cutaway {cutaway ? 'on' : 'off'}
           </button>
           <button
-            className={`rounded-md px-2 py-1 text-xs ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
               lightingOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleLighting}
             title="Open lighting controls"
           >
-            ☀ Light
+            <Sun size={13} /> Light
           </button>
           <button
-            className={`rounded-md px-2 py-1 text-xs ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
               materialsOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleMaterials}
             title="Open wall/floor/ceiling materials"
           >
-            🎨 Materials
+            <Palette size={13} /> Materials
           </button>
         </>
       )}
       <span className="text-white/25">·</span>
       {roomPhotoEnabled && (
-        <button className={btn} onClick={toggleImport} title="Generate a room from an uploaded photo">
-          📷 Import room
+        <button className={`${btn} inline-flex items-center gap-1`} onClick={toggleImport} title="Generate a room from an uploaded photo">
+          <Camera size={13} /> Import room
         </button>
       )}
       <button className={btn} onClick={reset} title="Discard changes and reload the sample scene">

@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { useUiStore } from './uiStore';
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -42,7 +43,7 @@ export function ImportSummaryBanner() {
           {notes && <p className="text-white/50">{notes}</p>}
         </div>
         <button className="shrink-0 text-white/40 hover:text-white/70" onClick={dismiss}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     </div>

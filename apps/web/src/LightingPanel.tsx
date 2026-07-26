@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { X, MapPin, Sun as SunIcon, Moon, Play, Pause, Check, Camera } from 'lucide-react';
 import {
   daylightTimes,
   kelvinToRgb,
@@ -110,7 +111,7 @@ function FixtureRow({
             on
           </label>
           <button className="px-1 text-red-300 hover:text-red-200" onClick={onDelete}>
-            ✕
+            <X size={12} />
           </button>
         </div>
       </div>
@@ -388,11 +389,11 @@ export function LightingPanel() {
             )}
             {photoGps && (
               <button
-                className={`${chip(false)} mb-1.5 w-full`}
+                className={`${chip(false)} mb-1.5 inline-flex w-full items-center justify-center gap-1`}
                 onClick={() => setCity(photoGps.lat, photoGps.lng)}
                 title="Read from the uploaded photo's EXIF data, client-side only"
               >
-                📍 Use photo's location ({photoGps.lat.toFixed(2)}, {photoGps.lng.toFixed(2)})
+                <MapPin size={12} /> Use photo's location ({photoGps.lat.toFixed(2)}, {photoGps.lng.toFixed(2)})
               </button>
             )}
             <div className="flex flex-wrap gap-1">
@@ -414,20 +415,32 @@ export function LightingPanel() {
               onChange={(e) => setDate(e.target.value)}
               className="w-full rounded bg-white/10 px-2 py-1 text-xs [color-scheme:dark]"
             />
-            <div className="mt-1.5 flex justify-between font-mono text-[11px] text-white/55">
-              <span>☀ {hm(times.sunrise)}</span>
+            <div className="mt-1.5 flex items-center justify-between font-mono text-[11px] text-white/55">
+              <span className="inline-flex items-center gap-1">
+                <SunIcon size={11} /> {hm(times.sunrise)}
+              </span>
               <span>{times.dayLengthHours.toFixed(1)}h</span>
-              <span>{hm(times.sunset)} ☾</span>
+              <span className="inline-flex items-center gap-1">
+                {hm(times.sunset)} <Moon size={11} />
+              </span>
             </div>
           </Section>
 
           <Section title="Sun study">
             <div className="flex items-center gap-2">
               <button
-                className={`rounded-md px-2 py-1 text-xs ${playing ? 'bg-emerald-500/25 text-emerald-200' : 'bg-white/10 hover:bg-white/20'}`}
+                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${playing ? 'bg-emerald-500/25 text-emerald-200' : 'bg-white/10 hover:bg-white/20'}`}
                 onClick={togglePlaying}
               >
-                {playing ? '⏸ Pause' : '▶ Play'}
+                {playing ? (
+                  <>
+                    <Pause size={12} /> Pause
+                  </>
+                ) : (
+                  <>
+                    <Play size={12} /> Play
+                  </>
+                )}
               </button>
               <span className="text-[10px] text-white/40">sweep the day</span>
             </div>
@@ -530,8 +543,9 @@ export function LightingPanel() {
                 Baseline <span className="font-mono text-white/85">{avgLux} lx</span>{' '}
                 <span className="text-white/35">(no direct sun)</span>
               </div>
-              <div className={avgLux >= standardLux ? 'text-emerald-300' : 'text-amber-300'}>
-                {avgLux >= standardLux ? '✓ meets' : '✗ below'} ~{standardLux} lx
+              <div className={`inline-flex items-center gap-1 ${avgLux >= standardLux ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {avgLux >= standardLux ? <Check size={12} /> : <X size={12} />}
+                {avgLux >= standardLux ? 'meets' : 'below'} ~{standardLux} lx
               </div>
             </div>
           </div>
@@ -587,7 +601,7 @@ export function LightingPanel() {
                     Apply
                   </button>
                   <button className="px-1 text-red-300 hover:text-red-200" onClick={() => deleteScene(s.id)}>
-                    ✕
+                    <X size={12} />
                   </button>
                 </div>
               </div>
@@ -609,13 +623,19 @@ export function LightingPanel() {
 
       <Section title="Photo mode">
         <button
-          className={`w-full rounded-md px-2 py-1.5 text-sm ${
+          className={`inline-flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm ${
             photoBusy ? 'bg-white/10 text-white/40' : 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
           }`}
           disabled={photoBusy}
           onClick={requestPhoto}
         >
-          {photoBusy ? 'Rendering…' : '📷 Render photo'}
+          {photoBusy ? (
+            'Rendering…'
+          ) : (
+            <>
+              <Camera size={14} /> Render photo
+            </>
+          )}
         </button>
         <p className="mt-1.5 text-[11px] leading-snug text-white/40">
           A one-shot high-quality capture — every setting maxed, higher resolution. Not
@@ -633,7 +653,7 @@ export function LightingPanel() {
                 Download PNG
               </a>
               <button className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20" onClick={clearPhotoResult}>
-                ✕
+                <X size={12} />
               </button>
             </div>
           </div>

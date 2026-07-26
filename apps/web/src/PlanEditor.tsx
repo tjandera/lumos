@@ -1,10 +1,11 @@
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { RotateCcw, RotateCw } from 'lucide-react';
 import type { SceneDocument, Wall, Opening, Covering, LightInstance } from '@interior/core';
-import { kelvinToRgb } from '@interior/core';
+import { kelvinToRgb, rotateBuilding } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
-import { useCollidingFurniture } from './collisions';
+import { FurnitureIcon } from './furnitureIcons';
 
 const GRID = 0.1; // snap resolution (meters)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -51,12 +52,12 @@ export function PlanEditor() {
   const selectFurniture = useUiStore((s) => s.selectFurniture);
   const selectedLightId = useUiStore((s) => s.selectedLightId);
   const selectLight = useUiStore((s) => s.selectLight);
-  const collidingIds = useCollidingFurniture(doc);
+  const sel = useUiStore((s) => s.planSelection);
+  const setSel = useUiStore((s) => s.setPlanSelection);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>('select');
   const [snap, setSnap] = useState(true);
-  const [sel, setSel] = useState<Selection>(null); // wall / opening (furniture lives in uiStore)
   const [drag, setDrag] = useState<Drag>(null);
   const [pending, setPending] = useState<{ x: number; z: number } | null>(null);
 
@@ -291,6 +292,19 @@ export function PlanEditor() {
     selectLight(null);
   };
 
+  // Rigidly spins the whole floor plan (walls, furniture, fixtures) around the room
+  // center — e.g. the initial sketch turned out to face the wrong way. Site orientation
+  // (trueNorthOffsetDeg) is untouched on purpose: it's the fixed compass the room now
+  // sits differently within, which is exactly the point.
+  const rotateWholeBuilding = (deg: number) => {
+    const rotated = rotateBuilding(doc, deg);
+    edit((d) => {
+      d.rooms = rotated.rooms;
+      d.furniture = rotated.furniture;
+      d.lights = rotated.lights;
+    });
+  };
+
   const gridLines = buildGrid(bounds);
 
   const panel = renderPanel();
@@ -307,14 +321,13 @@ export function PlanEditor() {
           </Field>
           <Field label="Rotation">{Math.round(f.rotationY)}°</Field>
           <div className="mt-2 flex gap-2">
-            <button className={btn} onClick={() => rotateFurniture(f.id, -15)}>
-              ⟲ 15°
+            <button className={`${btn} inline-flex items-center gap-1`} onClick={() => rotateFurniture(f.id, -15)}>
+              <RotateCcw size={13} /> 15°
             </button>
-            <button className={btn} onClick={() => rotateFurniture(f.id, 15)}>
-              ⟳ 15°
+            <button className={`${btn} inline-flex items-center gap-1`} onClick={() => rotateFurniture(f.id, 15)}>
+              <RotateCw size={13} /> 15°
             </button>
           </div>
-          {collidingIds.has(f.id) && <div className="mt-2 text-[11px] text-red-300">Overlapping another item</div>}
           <button
             className={`${btn} mt-2 w-full !bg-red-500/20 !text-red-200`}
             onClick={() => deleteFurniture(f.id)}
@@ -526,7 +539,6 @@ export function PlanEditor() {
           const pos = effFurniturePos(f.id, f.position);
           const w = cat.width * f.scale;
           const d = cat.depth * f.scale;
-          const colliding = collidingIds.has(f.id);
           const selected = f.id === selectedFurnitureId;
           return (
             <g
@@ -535,16 +547,30 @@ export function PlanEditor() {
               style={{ cursor: 'grab' }}
               onPointerDown={(e) => startFurnitureDrag(e, f.id, f.position)}
             >
-              <rect
-                x={-w / 2}
-                y={-d / 2}
-                width={w}
-                height={d}
-                fill={colliding ? 'rgba(239,68,68,0.28)' : 'rgba(255,255,255,0.10)'}
-                stroke={colliding ? '#ef4444' : selected ? '#38bdf8' : '#aeb6c2'}
-                strokeWidth={selected ? 0.05 : 0.03}
-              />
-              <text x={0} y={0} fontSize={0.22} fill="#e5e7eb" textAnchor="middle" dominantBaseline="middle" pointerEvents="none">
+              {/* full-footprint hit area — the icon shape below doesn't always fill every corner */}
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="transparent" />
+              <FurnitureIcon catalogId={f.catalogId} w={w} d={d} fill={cat.color} stroke={selected ? '#38bdf8' : '#20232b'} />
+              {selected && (
+                <rect
+                  x={-w / 2}
+                  y={-d / 2}
+                  width={w}
+                  height={d}
+                  rx={Math.min(w, d) * 0.08}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth={0.045}
+                />
+              )}
+              <text
+                x={0}
+                y={d / 2 + 0.16}
+                fontSize={0.16}
+                fill="#e5e7eb"
+                textAnchor="middle"
+                dominantBaseline="hanging"
+                pointerEvents="none"
+              >
                 {cat.name}
               </text>
             </g>
@@ -662,6 +688,7 @@ export function PlanEditor() {
         setSnap={setSnap}
         pending={!!pending}
         cancelPending={() => setPending(null)}
+        onRotateBuilding={rotateWholeBuilding}
       />
 
       {panel}
@@ -680,6 +707,7 @@ function PlanTools({
   setSnap,
   pending,
   cancelPending,
+  onRotateBuilding,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -687,7 +715,9 @@ function PlanTools({
   setSnap: (v: boolean) => void;
   pending: boolean;
   cancelPending: () => void;
+  onRotateBuilding: (deg: number) => void;
 }) {
+  const [customDeg, setCustomDeg] = useState('45');
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
   return (
@@ -714,6 +744,38 @@ function PlanTools({
         <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
         snap 0.1m
       </label>
+      <span className="h-4 w-px bg-white/15" />
+      <span className="text-[11px] text-white/50">Rotate building</span>
+      <button
+        className="rounded-md bg-white/10 p-1 hover:bg-white/20"
+        title="Rotate the whole building 90° counterclockwise"
+        onClick={() => onRotateBuilding(-90)}
+      >
+        <RotateCcw size={14} />
+      </button>
+      <button
+        className="rounded-md bg-white/10 p-1 hover:bg-white/20"
+        title="Rotate the whole building 90° clockwise"
+        onClick={() => onRotateBuilding(90)}
+      >
+        <RotateCw size={14} />
+      </button>
+      <input
+        type="number"
+        value={customDeg}
+        onChange={(e) => setCustomDeg(e.target.value)}
+        className="w-14 rounded bg-white/10 px-1.5 py-1 text-right font-mono text-xs [color-scheme:dark]"
+        title="Custom rotation angle (degrees)"
+      />
+      <button
+        className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+        onClick={() => {
+          const v = Number(customDeg);
+          if (Number.isFinite(v) && v !== 0) onRotateBuilding(v);
+        }}
+      >
+        Apply
+      </button>
     </div>
   );
 }

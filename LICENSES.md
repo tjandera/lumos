@@ -16,6 +16,22 @@ CC0 = public domain, no attribution required (credit appreciated). Models were c
 from the pack's `Models/GLTF format/*.glb`, renamed to their catalog IDs; the renderer
 recenters and scales each to its real-world catalog dimensions at load time.
 
+Second batch (same pack, downloaded fresh from the same source above), renamed from
+their original Kenney filenames:
+
+| Catalog ID | Source model |
+| --- | --- |
+| `sofa-3seat` | `loungeSofaLong.glb` |
+| `lounge-chair` | `loungeChair.glb` |
+| `bar-stool` | `stoolBar.glb` |
+| `round-table` | `tableRound.glb` |
+| `corner-desk` | `deskCorner.glb` |
+| `wardrobe` | `bookcaseClosedDoors.glb` |
+| `bed-single` | `bedSingle.glb` |
+| `plant-small` | `plantSmall1.glb` |
+| `rug-round` | `rugRound.glb` |
+| `coat-rack` | `coatRackStanding.glb` |
+
 ## Light fixture models
 
 Same pack, additional files, used for `doc.lights[].kind` mounts (ceiling/wall/table —

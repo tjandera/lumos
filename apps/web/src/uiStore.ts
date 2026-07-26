@@ -84,6 +84,12 @@ interface UiStore {
   selectedLightId: string | null;
   selectLight: (id: string | null) => void;
 
+  /** Selected wall/opening in the Plan editor — lives here (not local component state)
+   * so a single global keyboard-shortcut handler can act on whichever kind of thing is
+   * currently selected. */
+  planSelection: { type: 'wall' | 'opening'; id: string } | null;
+  setPlanSelection: (s: { type: 'wall' | 'opening'; id: string } | null) => void;
+
   // --- Photo-based room import ---
   importOpen: boolean;
   toggleImport: () => void;
@@ -172,6 +178,9 @@ export const useUiStore = create<UiStore>()((set) => ({
 
   selectedLightId: null,
   selectLight: (selectedLightId) => set({ selectedLightId }),
+
+  planSelection: null,
+  setPlanSelection: (planSelection) => set({ planSelection }),
 
   importOpen: false,
   toggleImport: () => set((s) => ({ importOpen: !s.importOpen })),
