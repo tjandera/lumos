@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { analyzeRoomPhoto, RoomPhotoConfigError, RoomPhotoUpstreamError } from './openai';
+import { analyzeRoomPhoto, RoomPhotoConfigError, RoomPhotoUpstreamError } from './openai.js';
 
 const createMock = vi.fn();
 vi.mock('openai', () => ({

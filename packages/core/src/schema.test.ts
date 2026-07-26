@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { SceneDocumentSchema, parseSceneDocument, CURRENT_SCHEMA_VERSION } from './schema';
-import { migrateSceneDocument } from './migrations';
-import { History } from './undo';
-import { sampleScene } from './sample';
+import { SceneDocumentSchema, parseSceneDocument, CURRENT_SCHEMA_VERSION } from './schema.js';
+import { migrateSceneDocument } from './migrations.js';
+import { History } from './undo.js';
+import { sampleScene } from './sample.js';
 
 describe('SceneDocument schema', () => {
   it('validates the sample scene', () => {
@@ -148,5 +148,103 @@ describe('History (patch-based undo)', () => {
     const h = new History({ count: 0 });
     h.update(() => {});
     expect(h.canUndo()).toBe(false);
+  });
+});
+
+describe('cross-lineage migration (merged codebases)', () => {
+  /** A document as the other (polyline) codebase wrote it: rooms are a closed polyline of
+   * {x,y} corners, openings nested by wallIndex, sun as a light source, identity in meta. */
+  const polylineDoc = {
+    schemaVersion: 2,
+    site: { lat: 1.3, lng: 103.8, trueNorthOffsetDeg: 15 },
+    meta: { id: 'd-1', name: 'Her Studio', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' },
+    rooms: [
+      {
+        id: 'r1',
+        name: 'Living',
+        walls: [
+          { x: 0, y: 0 },
+          { x: 4, y: 0 },
+          { x: 4, y: 3 },
+          { x: 0, y: 3 },
+        ],
+        wallThickness: 0.15,
+        height: 2.8,
+        openings: [
+          { id: 'o1', type: 'window', wallIndex: 1, position: 1, width: 1.2, height: 1.1, sillHeight: 0.9 },
+        ],
+      },
+    ],
+    furniture: [
+      { id: 'f1', catalogId: 'sofa-2seat', position: { x: 1, y: 0, z: 1 }, rotationY: 90, dimensions: { w: 1.6, d: 0.85, h: 0.8 } },
+    ],
+    lights: [
+      { type: 'sun', id: 's1', date: '2026-06-21', time: '14:30', latitude: 1.3, longitude: 103.8, northOffset: 0 },
+      { type: 'lamp', id: 'l1', furnitureItemId: 'f1', intensity: 200, color: '#ffddaa', on: true },
+    ],
+  };
+
+  it('converts a polyline-lineage document into a valid current document', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    expect(doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(doc.meta.id).toBe('d-1');
+    expect(doc.meta.name).toBe('Her Studio');
+  });
+
+  it('turns the closed polyline into one wall segment per edge, including the closing edge', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    const walls = doc.rooms[0]!.walls;
+    expect(walls).toHaveLength(4);
+    // Plan plane differs: their {x,y} is our {x,z}.
+    expect(walls[0]!.start).toEqual({ x: 0, z: 0 });
+    expect(walls[0]!.end).toEqual({ x: 4, z: 0 });
+    // The last segment wraps back to the first corner, closing the room.
+    expect(walls[3]!.end).toEqual({ x: 0, z: 0 });
+    // Room-level thickness/height are pushed down onto every segment.
+    expect(walls.every((w) => w.thickness === 0.15 && w.height === 2.8)).toBe(true);
+  });
+
+  it('re-hosts nested openings onto the wall id they were indexed against', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    expect(doc.openings).toHaveLength(1);
+    const opening = doc.openings[0]!;
+    expect(opening.wallId).toBe(doc.rooms[0]!.walls[1]!.id);
+    expect(opening.kind).toBe('window');
+    expect(opening.offset).toBe(1);
+    // Fields their schema never had come back as documented defaults, not undefined.
+    expect(opening.covering).toEqual({ type: 'none', state: 'open' });
+  });
+
+  it('folds their sun light into site + view.timeOfDay instead of keeping it as a fixture', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    expect(doc.lights.some((l) => (l as { kind?: string }).kind === 'sun')).toBe(false);
+    expect(doc.view.timeOfDay).toBe('2026-06-21T14:30:00');
+    expect(doc.site).toEqual({ lat: 1.3, lng: 103.8, trueNorthOffsetDeg: 15 });
+  });
+
+  it('keeps lamps as fixtures, positioned at the furniture they belong to', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    expect(doc.lights).toHaveLength(1);
+    const lamp = doc.lights[0]!;
+    expect(lamp.furnitureItemId).toBe('f1');
+    // f1 sits at x:1,z:1 — the lamp should follow it, not sit at the origin.
+    expect(lamp.position.x).toBe(1);
+    expect(lamp.position.z).toBe(1);
+    expect(lamp.intensityCandela).toBe(200);
+  });
+
+  it('preserves a per-item dimension override through the conversion', () => {
+    const doc = migrateSceneDocument(polylineDoc);
+    expect(doc.furniture[0]!.dimensions).toEqual({ w: 1.6, d: 0.85, h: 0.8 });
+  });
+
+  it('rejects a polyline document written by a newer version of that app', () => {
+    expect(() => migrateSceneDocument({ ...polylineDoc, schemaVersion: 99 })).toThrow(/newer than supported/);
+  });
+
+  it('still migrates this lineage’s own documents (shape detection does not misfire)', () => {
+    const mine = migrateSceneDocument({ ...sampleScene, schemaVersion: CURRENT_SCHEMA_VERSION });
+    expect(mine.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(mine.rooms[0]!.walls[0]!.start).toBeDefined();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { safeParseSceneDocument } from './schema';
-import { computeCollisions } from './collision';
-import { RoomPhotoProposalSchema, materializeRoomPhoto, type RoomPhotoProposal } from './roomPhoto';
+import { safeParseSceneDocument } from './schema.js';
+import { computeCollisions } from './collision.js';
+import { RoomPhotoProposalSchema, materializeRoomPhoto, type RoomPhotoProposal } from './roomPhoto.js';
 
 function baseProposal(overrides: Partial<RoomPhotoProposal> = {}): RoomPhotoProposal {
   return RoomPhotoProposalSchema.parse({

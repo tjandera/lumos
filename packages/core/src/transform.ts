@@ -1,4 +1,4 @@
-import type { SceneDocument, Vec2 } from './schema';
+import type { SceneDocument, Vec2 } from './schema.js';
 
 function roomFootprintCenter(doc: SceneDocument): Vec2 {
   const xs: number[] = [];

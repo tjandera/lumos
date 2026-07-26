@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { illuminanceAt, effectiveFixtureIntensity } from './illuminance';
+import { illuminanceAt, effectiveFixtureIntensity } from './illuminance.js';
 
 describe('illuminanceAt', () => {
   it('is zero with no light', () => {

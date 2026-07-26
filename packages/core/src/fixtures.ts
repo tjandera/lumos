@@ -1,4 +1,4 @@
-import type { FixtureKind } from './schema';
+import type { FixtureKind } from './schema.js';
 
 /** Mount height (meters) each fixture kind is placed at when added — ceiling/wall fixtures
  * mount high, floor/table fixtures sit low. Shared by the manual "+ Fixture" buttons and the

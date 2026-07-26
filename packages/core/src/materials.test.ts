@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { finishToRoughness } from './materials';
-import type { Finish } from './schema';
+import { finishToRoughness } from './materials.js';
+import type { Finish } from './schema.js';
 
 describe('finishToRoughness', () => {
   it('gets glossier (lower roughness) as the finish goes matte -> gloss', () => {

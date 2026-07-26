@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sunVector, sunFromAngles, sunPath, daylightTimes } from './sunlight';
+import { sunVector, sunFromAngles, sunPath, daylightTimes } from './sunlight.js';
 
 // New York City.
 const NY = { lat: 40.7128, lng: -74.006 };

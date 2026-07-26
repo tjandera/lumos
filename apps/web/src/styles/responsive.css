@@ -1,0 +1,65 @@
+/* Mobile/touch polish (Phase 5b). CSS-only, no component redesign:
+   - touch-friendly hit targets on coarse-pointer (touch) devices
+   - catalog/lighting side panels collapse into bottom sheets under 768px
+*/
+
+/* Touch-friendly hit targets for tabs/toolbar/form controls. */
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 12px;
+  }
+  select,
+  input[type="checkbox"],
+  input[type="range"] {
+    min-height: 32px;
+  }
+}
+
+/* Bottom-sheet panels under 768px. Applied via a `mobile-sheet` class on the
+   Catalog/Lighting panel root; a `collapsed` class (toggled by small local
+   component state) slides it mostly off-screen, leaving just the handle. */
+@media (max-width: 768px) {
+  .mobile-sheet {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-height: 55vh;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: 1px solid #ddd;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+    z-index: 30;
+    transition: transform 0.2s ease;
+    transform: translateY(0);
+  }
+
+  .mobile-sheet.collapsed {
+    transform: translateY(calc(100% - 44px));
+  }
+
+  .mobile-sheet-handle {
+    display: flex !important;
+  }
+}
+
+.mobile-sheet-handle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  background: #f4f4f4;
+  border-bottom: 1px solid #eee;
+  font-family: sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+}

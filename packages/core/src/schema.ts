@@ -5,10 +5,19 @@ import { z } from 'zod';
  * migrations.ts keyed by the version it upgrades FROM. Saved and shared designs
  * are validated + migrated on load, so they survive schema evolution.
  */
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 const Vec2Schema = z.object({ x: z.number(), z: z.number() }); // ground-plane point (meters)
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
+
+/** Explicit width/depth/height in meters. Normally a furniture item's size comes from the
+ * catalog; this is the override for items the catalog doesn't know (a user-measured piece,
+ * or something the AI proposed with a specific footprint). */
+export const Dimensions3DSchema = z.object({
+  w: z.number().positive(),
+  d: z.number().positive(),
+  h: z.number().positive(),
+});
 
 export const WallSchema = z.object({
   id: z.string(),
@@ -70,6 +79,8 @@ export const FurnitureInstanceSchema = z.object({
   position: Vec3Schema,
   rotationY: z.number(), // degrees
   scale: z.number().positive().default(1),
+  /** Optional real-world size override. Absent = use the catalog item's dimensions. */
+  dimensions: Dimensions3DSchema.optional(),
 });
 
 /** Which real fixture this light is + how it mounts (ceiling/wall vs floor/table). */
@@ -86,6 +97,10 @@ export const LightInstanceSchema = z.object({
   castShadow: z.boolean().default(true),
   /** Auto-ramp brightness up as daylight fades (dusk/night), down in daytime. */
   auto: z.boolean().default(false),
+  /** Set when this fixture *is* a piece of furniture (a table lamp on a side table, say)
+   * rather than a standalone architectural fixture. Lets the AI toggle "the lamp on the
+   * desk" and keeps the light travelling with the item if it's moved. */
+  furnitureItemId: z.string().optional(),
 });
 
 /** A named, recallable snapshot of the lighting setup ("Evening", "Reading", ...). */
@@ -103,10 +118,26 @@ export const LightingSceneSchema = z.object({
   ),
 });
 
-export const SiteSchema = z.object({
-  lat: z.number(),
-  lng: z.number(),
-  trueNorthOffsetDeg: z.number(), // see units.ts
+/**
+ * Coarse siting only. `.strict()` is load-bearing for the PII rule: a street address (or
+ * any address/postcode/city-like field) must not be able to enter the document, even by
+ * an unknown key riding along on a payload. See schema.pii.test.ts.
+ */
+export const SiteSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    trueNorthOffsetDeg: z.number(), // see units.ts
+  })
+  .strict();
+
+/** Identity + timestamps. Grouped (rather than loose on the document root) because the
+ * designs API lists, sorts and versions on exactly this block. */
+export const SceneMetaSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string(), // ISO 8601
+  updatedAt: z.string(), // ISO 8601
 });
 
 export const ViewSchema = z.object({
@@ -116,8 +147,7 @@ export const ViewSchema = z.object({
 
 export const SceneDocumentSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
-  id: z.string(),
-  name: z.string(),
+  meta: SceneMetaSchema,
   site: SiteSchema,
   rooms: z.array(RoomSchema),
   openings: z.array(OpeningSchema),
@@ -141,6 +171,8 @@ export type FixtureKind = z.infer<typeof FixtureKindSchema>;
 export type LightInstance = z.infer<typeof LightInstanceSchema>;
 export type LightingScene = z.infer<typeof LightingSceneSchema>;
 export type Site = z.infer<typeof SiteSchema>;
+export type SceneMeta = z.infer<typeof SceneMetaSchema>;
+export type Dimensions3D = z.infer<typeof Dimensions3DSchema>;
 export type SceneDocument = z.infer<typeof SceneDocumentSchema>;
 
 /** Parse + validate unknown data as a current SceneDocument (throws on invalid). */

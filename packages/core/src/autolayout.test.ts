@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { suggestLayout } from './autolayout';
-import { computeCollisions } from './collision';
+import { suggestLayout } from './autolayout.js';
+import { computeCollisions } from './collision.js';
 
 const room = { minX: -2.5, maxX: 2.5, minZ: -2, maxZ: 2 };
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeCollisions } from './collision';
+import { computeCollisions } from './collision.js';
 
 describe('computeCollisions', () => {
   it('flags two overlapping items', () => {

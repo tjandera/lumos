@@ -11,7 +11,7 @@ export interface AnalyzeRoomPhotoResponse {
  * yet" instead of only failing after the user picks a photo. */
 export async function checkRoomPhotoStatus(): Promise<{ available: boolean; mock: boolean }> {
   try {
-    const res = await fetch('/api/status');
+    const res = await fetch('/api/room-photo/status');
     if (!res.ok) return { available: false, mock: false };
     return await res.json();
   } catch {
@@ -20,7 +20,7 @@ export async function checkRoomPhotoStatus(): Promise<{ available: boolean; mock
 }
 
 export async function analyzeRoomPhoto(imageDataUrl: string): Promise<AnalyzeRoomPhotoResponse> {
-  const res = await fetch('/api/analyze-room-photo', {
+  const res = await fetch('/api/room-photo/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageDataUrl }),
