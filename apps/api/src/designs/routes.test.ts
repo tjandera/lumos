@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
-import { createEmptyDocument } from "@interior/core";
+import { createEmptyDocument, CURRENT_SCHEMA_VERSION } from "@interior/core";
 import { buildApp } from "../app.js";
 
 /**
@@ -70,7 +70,7 @@ describe("designs routes", () => {
     expect(getRes.json()).toEqual(created);
   });
 
-  it("POST /designs accepts a v1 (unversioned) document and stores it migrated to v2", async () => {
+  it("POST /designs accepts a v1 (unversioned) document and stores it migrated to the current version", async () => {
     // A document shaped the way the app saved before schema versioning: no
     // schemaVersion, no site, coarse location on the sun light (rad north offset).
     const v1Doc = {
@@ -93,16 +93,16 @@ describe("designs routes", () => {
     const createRes = await client({ method: "POST", url: "/designs", payload: v1Doc });
     expect(createRes.statusCode).toBe(201);
     const created = createRes.json();
-    expect(created.schemaVersion).toBe(2);
+    expect(created.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(created.site.lat).toBe(40.7128);
     expect(created.site.lng).toBe(-74.006);
     expect(created.site.trueNorthOffsetDeg).toBeCloseTo(90, 6);
 
-    // GET returns the stored, migrated v2 document.
+    // GET returns the stored, migrated current-version document.
     const getRes = await client({ method: "GET", url: `/designs/${created.meta.id}` });
     expect(getRes.statusCode).toBe(200);
     const fetched = getRes.json();
-    expect(fetched.schemaVersion).toBe(2);
+    expect(fetched.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(fetched.site).toEqual({ lat: 40.7128, lng: -74.006, trueNorthOffsetDeg: created.site.trueNorthOffsetDeg });
   });
 

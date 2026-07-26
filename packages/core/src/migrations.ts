@@ -1,3 +1,4 @@
+import { ZodError } from 'zod';
 import {
   CURRENT_SCHEMA_VERSION,
   SceneDocumentSchema,
@@ -98,6 +99,10 @@ function randomId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 /**
  * Two independent codebases were merged into this one, and they both versioned their
  * documents from 1 — so `schemaVersion: 2` is ambiguous on its own. Tell the lineages
@@ -115,13 +120,24 @@ function randomId(): string {
 const POLYLINE_LINEAGE_MAX_VERSION = 2;
 
 function isPolylineLineage(doc: Record<string, unknown>): boolean {
+  // Strongest signal: a room whose walls are corner points rather than segments.
   const rooms = doc.rooms;
-  if (!Array.isArray(rooms) || rooms.length === 0) return false;
-  const room = rooms[0] as Record<string, unknown> | undefined;
-  if (!room || !Array.isArray(room.walls) || room.walls.length === 0) return false;
-  const wall = room.walls[0] as Record<string, unknown> | undefined;
-  // A corner point has x/y and no start/end; a segment has start/end.
-  return !!wall && 'x' in wall && 'y' in wall && !('start' in wall);
+  if (Array.isArray(rooms) && rooms.length > 0) {
+    const room = rooms[0] as Record<string, unknown> | undefined;
+    const wall = Array.isArray(room?.walls) ? (room.walls[0] as Record<string, unknown> | undefined) : undefined;
+    if (wall) return 'x' in wall && 'y' in wall && !('start' in wall);
+    // A room with no walls still identifies itself by where it keeps its openings.
+    if (room && ('openings' in room || 'wallThickness' in room)) return true;
+  }
+
+  // An empty or room-less document still has tells: their lights are a tagged
+  // sun|lamp union, and their identity always lived in `meta` while ours (pre-v6) kept
+  // id/name on the root and always carried a top-level `openings` array.
+  const lights = doc.lights;
+  if (Array.isArray(lights) && lights.some((l) => typeof (l as { type?: unknown })?.type === 'string')) {
+    return true;
+  }
+  return typeof doc.meta === 'object' && doc.meta !== null && !Array.isArray(doc.openings);
 }
 
 /**
@@ -210,10 +226,15 @@ function fromPolylineLineage(doc: Record<string, unknown>): Record<string, unkno
     schemaVersion: 5,
     id: meta.id,
     name: meta.name,
+    // Their earliest documents had no `site` block at all — siting lived on the sun
+    // light, whose `northOffset` was in RADIANS (this schema stores degrees).
     site: {
-      lat: typeof site.lat === 'number' ? site.lat : (sun?.latitude as number) ?? 0,
-      lng: typeof site.lng === 'number' ? site.lng : (sun?.longitude as number) ?? 0,
-      trueNorthOffsetDeg: typeof site.trueNorthOffsetDeg === 'number' ? site.trueNorthOffsetDeg : 0,
+      lat: typeof site.lat === 'number' ? site.lat : numberOr(sun?.latitude, 0),
+      lng: typeof site.lng === 'number' ? site.lng : numberOr(sun?.longitude, 0),
+      trueNorthOffsetDeg:
+        typeof site.trueNorthOffsetDeg === 'number'
+          ? site.trueNorthOffsetDeg
+          : (numberOr(sun?.northOffset, 0) * 180) / Math.PI,
     },
     rooms: converted,
     openings: allOpenings,
@@ -233,17 +254,33 @@ function sunToIso(sun: Record<string, unknown> | undefined): string {
   return `${date}T${time.length === 5 ? `${time}:00` : time}`;
 }
 
+/** Thrown when input can't be migrated to, or validated as, a current document. */
+export class MigrationError extends Error {
+  /** Structured detail — zod's formatted error, or a short reason string. */
+  readonly details: unknown;
+
+  constructor(message: string, details?: unknown) {
+    super(message);
+    this.name = 'MigrationError';
+    this.details = details;
+    // Preserve the prototype chain when compiled down for older targets.
+    Object.setPrototypeOf(this, MigrationError.prototype);
+  }
+}
+
 /**
  * Upgrade any historical document to the current schema, then validate it.
  * Throws if the document is unrecognizable, has no migration path, or was written
  * by a newer app version than we understand.
  */
 export function migrateSceneDocument(input: unknown): SceneDocument {
-  if (typeof input !== 'object' || input === null || !('schemaVersion' in input)) {
-    throw new Error('Not a scene document: missing schemaVersion');
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('Not a scene document');
   }
   let doc = input as Record<string, unknown>;
-  const rawVersion = doc.schemaVersion;
+  // A missing version means version 1: the other lineage saved documents before it had
+  // versioning at all, and those are exactly the ones most in need of migrating.
+  const rawVersion = doc.schemaVersion === undefined ? 1 : doc.schemaVersion;
   if (typeof rawVersion !== 'number') {
     throw new Error('Invalid scene document: schemaVersion must be a number');
   }
@@ -269,4 +306,21 @@ export function migrateSceneDocument(input: unknown): SceneDocument {
     version = doc.schemaVersion as number;
   }
   return SceneDocumentSchema.parse(doc);
+}
+
+/**
+ * Same as `migrateSceneDocument`, but every failure surfaces as a `MigrationError`
+ * carrying structured `details` — which is what the API's request validation wants, so
+ * it can turn a bad payload into a 400 with a useful body instead of a bare 500.
+ */
+export function migrate(input: unknown): SceneDocument {
+  try {
+    return migrateSceneDocument(input);
+  } catch (err) {
+    if (err instanceof MigrationError) throw err;
+    if (err instanceof ZodError) {
+      throw new MigrationError('Document failed schema validation', err.format());
+    }
+    throw new MigrationError(err instanceof Error ? err.message : 'Could not migrate document', err);
+  }
 }

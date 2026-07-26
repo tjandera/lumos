@@ -12,5 +12,6 @@ export * from './materials.js';
 export * from './geometry.js';
 export * from './fixtures.js';
 export * from './transform.js';
+export * from './document.js';
 export * from './sample.js';
 export * from './roomPhoto.js';

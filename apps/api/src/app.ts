@@ -2,7 +2,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
-import type { ChatProvider } from "@interior/ai";
 import { catalogRoutes } from "./catalog/routes.js";
 import { catalogItems } from "./catalog/data.js";
 import { designRoutes } from "./designs/routes.js";
@@ -17,9 +16,7 @@ import { FileShareTokenStore } from "./share/tokenStore.js";
 import { PostgresShareTokenStore } from "./share/postgresTokenStore.js";
 import type { ShareTokenStore } from "./share/tokenStore.js";
 import { registerSession, resolveSessionSecret } from "./auth/session.js";
-import { aiRoutes } from "./ai/routes.js";
-import { createRateLimiter, type RateLimitOptions } from "./ai/rateLimit.js";
-import { buildAiProvider, isFeatureAiEnabled } from "./ai/provider.js";
+import type { RateLimitOptions } from "./ai/rateLimit.js";
 import { createPgPool, ensurePgSchema, pingPgPool, type PgPool } from "./db/pool.js";
 import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
 
@@ -58,7 +55,9 @@ export interface BuildAppOptions {
   /** Override the `FEATURE_AI` env flag (tests). */
   featureAi?: boolean;
   /** Override the chat provider (tests use `MockProvider`). Defaults to env-driven selection. */
-  aiProvider?: ChatProvider;
+  /** Structurally typed so this module doesn't have to import @interior/ai — see the
+   * lazy-load note on the AI block below. */
+  aiProvider?: unknown;
   /** Override the AI route's rate-limit window/max (tests). */
   aiRateLimit?: RateLimitOptions;
   /**
@@ -140,9 +139,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(designRoutes, { storage, ownership, tokens });
   await app.register(shareRoutes, { storage, tokens });
 
-  const featureAi = options.featureAi ?? isFeatureAiEnabled();
-  const provider = featureAi ? (options.aiProvider ?? buildAiProvider()) : undefined;
-  const providerKind: "mock" | "llm" | null = !featureAi ? null : provider?.constructor.name === "MockProvider" ? "mock" : "llm";
+  // The assistant is loaded lazily, and only when it's actually switched on. Keeping it
+  // off the module's static import graph means the whole persistence API (designs, auth,
+  // share links, catalog, photo import) builds, boots and is testable without
+  // @interior/ai being present or built at all.
+  const featureAi = options.featureAi ?? (process.env.FEATURE_AI ?? "true") !== "false";
+  let provider: unknown;
+  let providerKind: "mock" | "llm" | null = null;
+  if (featureAi) {
+    if (options.aiProvider) {
+      provider = options.aiProvider;
+    } else {
+      try {
+        const { buildAiProvider } = await import("./ai/provider.js");
+        provider = buildAiProvider();
+      } catch (err) {
+        // The assistant is genuinely optional: a missing/unbuilt @interior/ai must not
+        // take the whole API down with it. Say so loudly, then serve everything else.
+        // `/ai/status` will report `enabled: true, provider: null` — "switched on but
+        // unavailable" — which is distinguishable from "switched off".
+        app.log.warn(
+          { err: err instanceof Error ? err.message : err },
+          "FEATURE_AI is on but @interior/ai could not be loaded — assistant routes disabled"
+        );
+      }
+    }
+    if (provider) {
+      providerKind = (provider as { constructor: { name: string } })?.constructor.name === "MockProvider" ? "mock" : "llm";
+    }
+  }
 
   // `/ai/status` is always registered (regardless of the flag) so the web
   // app can tell "assistant off" apart from "assistant on, offline mock"
@@ -151,8 +176,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { enabled: featureAi, provider: providerKind };
   });
   if (featureAi && provider) {
+    const [{ aiRoutes }, { createRateLimiter }] = await Promise.all([
+      import("./ai/routes.js"),
+      import("./ai/rateLimit.js")
+    ]);
     const checkRateLimit = createRateLimiter(options.aiRateLimit);
-    await app.register(aiRoutes, { provider, catalog: catalogItems, checkRateLimit });
+    await app.register(aiRoutes as never, { provider, catalog: catalogItems, checkRateLimit } as never);
   }
 
   return app;

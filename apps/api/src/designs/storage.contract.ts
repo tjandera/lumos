@@ -7,7 +7,7 @@
  * block below is invoked from a real test file.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createEmptyDocument } from "@interior/core";
+import { createEmptyDocument, rectWalls, DEFAULT_ROOM_MATERIALS, CURRENT_SCHEMA_VERSION } from "@interior/core";
 import type { DesignStorage } from "./storage.js";
 
 export interface DesignStorageHarness {
@@ -88,13 +88,12 @@ export function describeDesignStorageContract(label: string, setup: () => Promis
       const doc = createEmptyDocument("Sited", "sited-1");
       const withSite = {
         ...doc,
-        schemaVersion: 2,
         site: { lat: 40.7128, lng: -74.006, trueNorthOffsetDeg: 33.5 }
       };
       await storage.save(withSite);
 
       const loaded = await storage.get("sited-1");
-      expect(loaded?.schemaVersion).toBe(2);
+      expect(loaded?.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
       expect(loaded?.site).toEqual({ lat: 40.7128, lng: -74.006, trueNorthOffsetDeg: 33.5 });
     });
 
@@ -106,28 +105,49 @@ export function describeDesignStorageContract(label: string, setup: () => Promis
           {
             id: "room-1",
             name: "Living Room",
-            walls: [
-              { x: 0, y: 0 },
-              { x: 4, y: 0 },
-              { x: 4, y: 3 },
-              { x: 0, y: 3 }
-            ],
-            wallThickness: 0.1,
-            height: 2.4,
-            openings: [{ id: "door-1", type: "door" as const, wallIndex: 0, position: 1, width: 0.9, height: 2.1, sillHeight: 0 }]
+            // v6: walls are explicit segments carrying their own thickness/height.
+            walls: rectWalls(4, 3, 2.4, 0.1),
+            materials: DEFAULT_ROOM_MATERIALS
+          }
+        ],
+        // v6: openings live at the document root, hosted by wall id.
+        openings: [
+          {
+            id: "door-1",
+            wallId: "wall-N",
+            kind: "door" as const,
+            offset: 1,
+            width: 0.9,
+            height: 2.1,
+            sillHeight: 0,
+            glassTint: 0.06,
+            covering: { type: "none" as const, state: "open" as const }
           }
         ],
         furniture: [
           {
             id: "sofa-1",
-            catalogId: "sofa-basic",
+            catalogId: "sofa-2seat",
             position: { x: 1.5, y: 0, z: 1.2 },
-            rotationY: Math.PI / 4,
+            rotationY: 45, // v6: DEGREES
+            scale: 1,
             dimensions: { w: 1.8, d: 0.9, h: 0.85 }
           }
         ],
+        // v6: the sun isn't a fixture — it comes from site + view.timeOfDay. Only real
+        // lamps live in `lights`.
         lights: [
-          { type: "sun" as const, id: "sun", date: "2024-06-21", time: "15:00", latitude: 51.5, longitude: -0.12, northOffset: 0 }
+          {
+            id: "lamp-1",
+            kind: "table" as const,
+            position: { x: 1.5, y: 0.9, z: 1.2 },
+            intensityCandela: 180,
+            color: "#ffe6b0",
+            kelvin: 2700,
+            on: true,
+            castShadow: true,
+            auto: false
+          }
         ]
       };
       await storage.save(populated);
