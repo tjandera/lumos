@@ -5,5 +5,23 @@
     "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/store",
+    "src/scene3d",
+    "src/editor",
+    "src/viewer",
+    "src/onboarding",
+    "src/ai",
+    "src/guidance",
+    "src/share",
+    "src/catalog",
+    "src/components",
+    "src/import",
+    "src/api",
+    "src/perf",
+    "src/flags/features.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ]
 }

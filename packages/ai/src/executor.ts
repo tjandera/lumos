@@ -16,23 +16,20 @@
 
 import {
   addFurniture,
-  getLampForFurniture,
-  createLampLight,
-  addLampLight,
+  FIXTURE_MOUNT_HEIGHT,
   moveFurniture,
   polygonAbsArea,
   removeFurniture,
-  removeLampLightsForFurniture,
-  setLampOn,
-  setSunLight,
-  type FurnitureItem,
+  roomCorners,
+  type FurnitureInstance,
   type Room,
-  type SceneDocument
+  type SceneDocument,
 } from "@interior/core";
 import { z } from "zod";
 import type { CatalogItem } from "./catalog.js";
-import { findCatalogItem } from "./catalog.js";
+import { findCatalogItem, needsFrontClearance } from "./catalog.js";
 import { planLayout } from "./layout.js";
+import { addLampLight, createLampLight, getLampForFurniture, setLampOn, setViewTimeOfDay } from "./lights.js";
 import { isPlacementValid, solve, type PlacementRequest, type SolveResult } from "./solver.js";
 import type { ToolCall } from "./provider.js";
 import { isToolName, toolArgSchemas, type ToolName } from "./tools.js";
@@ -65,9 +62,9 @@ function summarizePlacement(result: SolveResult): unknown {
       itemId: p.itemId,
       catalogId: p.catalogId,
       position: { x: round(p.position.x), y: round(p.position.y), z: round(p.position.z) },
-      rotationDeg: round((p.rotationY * 180) / Math.PI)
+      rotationDeg: round(p.rotationY),
     })),
-    failed: result.failed.map((f) => ({ itemId: f.itemId, catalogId: f.catalogId, reason: f.reason, message: f.message }))
+    failed: result.failed.map((f) => ({ itemId: f.itemId, catalogId: f.catalogId, reason: f.reason, message: f.message })),
   };
 }
 
@@ -75,13 +72,14 @@ function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-function placedToFurniture(p: SolveResult["placed"][number]): FurnitureItem {
+function placedToFurniture(p: SolveResult["placed"][number]): FurnitureInstance {
   return {
     id: p.itemId,
     catalogId: p.catalogId,
     position: p.position,
     rotationY: p.rotationY,
-    dimensions: p.dimensions
+    scale: 1,
+    dimensions: p.dimensions,
   };
 }
 
@@ -126,7 +124,7 @@ type Args<N extends ToolName> = z.infer<(typeof toolArgSchemas)[N]>;
 
 function parseArgs(
   name: ToolName,
-  raw: string
+  raw: string,
 ): { ok: true; value: unknown } | { ok: false; issues: unknown } {
   let json: unknown;
   try {
@@ -148,7 +146,7 @@ function placeFurniture(
   document: SceneDocument,
   args: Args<"placeFurniture">,
   context: ExecuteContext,
-  generateId: () => string
+  generateId: () => string,
 ): ToolResult {
   const item = findCatalogItem(context.catalog, args.catalogId);
   if (!item) {
@@ -161,7 +159,7 @@ function placeFurniture(
     dimensions: item.dimensions,
     category: item.category,
     constraints: args.constraints,
-    isExisting: false
+    isExisting: false,
   };
   const result = solve(document, room, [request]);
   const placed = result.placed[0];
@@ -180,6 +178,7 @@ function moveItem(document: SceneDocument, args: Args<"moveItem">, context: Exec
   const room = activeRoom(document, context.roomId);
   const catalogItem = findCatalogItem(context.catalog, existing.catalogId);
   const category = catalogItem?.category;
+  const dims = existing.dimensions ?? catalogItem?.dimensions;
   const c = args.constraints;
 
   const hasPositional =
@@ -187,33 +186,42 @@ function moveItem(document: SceneDocument, args: Args<"moveItem">, context: Exec
 
   // Pure in-place rotation (no positional constraint): validate, don't reposition.
   if (c.rotateDeg !== undefined && !hasPositional) {
-    const rotationY = existing.rotationY + (c.rotateDeg * Math.PI) / 180;
-    const candidate: FurnitureItem = { ...existing, rotationY };
-    const enforceFront = category ? needsFront(category) : false;
-    if (!isPlacementValid(document, room, candidate, { excludeId: existing.id, enforceFront })) {
+    const rotationY = existing.rotationY + c.rotateDeg;
+    const candidate: FurnitureInstance = { ...existing, rotationY };
+    const enforceFront = category ? needsFrontClearance(category) : false;
+    if (!isPlacementValid(document, room, candidate, { excludeId: existing.id, enforceFront, dimensions: dims })) {
       return unchanged(document, {
         ok: false,
         error: "not_placed",
         reason: "no-space",
-        message: "Rotating the item there would cause a collision or leave no clearance."
+        message: "Rotating the item there would cause a collision or leave no clearance.",
       });
     }
     const next = moveFurniture(document, existing.id, { rotationY });
     return {
       document: next,
       changed: true,
-      resultForLLM: { ok: true, itemId: existing.id, rotationDeg: round((rotationY * 180) / Math.PI) }
+      resultForLLM: { ok: true, itemId: existing.id, rotationDeg: round(rotationY) },
     };
+  }
+
+  if (!dims) {
+    return unchanged(document, {
+      ok: false,
+      error: "not_placed",
+      reason: "item-not-found",
+      message: "No dimensions are known for this item; cannot reposition it.",
+    });
   }
 
   // Otherwise run the solver with the given constraints (towardWall -> nearWall).
   const request: PlacementRequest = {
     catalogId: existing.catalogId,
     itemId: existing.id,
-    dimensions: existing.dimensions,
+    dimensions: dims,
     category,
     constraints: { ...c, nearWall: c.nearWall || c.towardWall },
-    isExisting: true
+    isExisting: true,
   };
   const result = solve(document, room, [request]);
   const placed = result.placed[0];
@@ -222,7 +230,7 @@ function moveItem(document: SceneDocument, args: Args<"moveItem">, context: Exec
   }
   let rotationY = placed.rotationY;
   if (c.rotateDeg !== undefined) {
-    rotationY = rotationY + (c.rotateDeg * Math.PI) / 180;
+    rotationY = rotationY + c.rotateDeg;
   }
   const next = moveFurniture(document, existing.id, { position: placed.position, rotationY });
   return { document: next, changed: true, resultForLLM: { ok: true, ...(summarizePlacement(result) as object) } };
@@ -233,16 +241,16 @@ function removeItem(document: SceneDocument, args: Args<"removeItem">): ToolResu
   if (!exists) {
     return unchanged(document, { ok: false, error: "item_not_found", itemId: args.itemId });
   }
-  const withoutLamps = removeLampLightsForFurniture(document, args.itemId);
-  const next = removeFurniture(withoutLamps, args.itemId);
+  // `removeFurniture` also drops any lamp bound to this item via furnitureItemId.
+  const next = removeFurniture(document, args.itemId);
   return { document: next, changed: true, resultForLLM: { ok: true, removed: args.itemId } };
 }
 
 function setTimeOfDay(document: SceneDocument, args: Args<"setTimeOfDay">): ToolResult {
-  const updates: { time: string; date?: string } = { time: args.time };
-  if (args.date) updates.date = args.date;
-  const next = setSunLight(document, updates);
-  return { document: next, changed: true, resultForLLM: { ok: true, time: args.time, date: args.date ?? null } };
+  const date = args.date ?? document.view.timeOfDay.slice(0, 10);
+  const timeOfDay = `${date}T${args.time}:00`;
+  const next = setViewTimeOfDay(document, timeOfDay);
+  return { document: next, changed: true, resultForLLM: { ok: true, timeOfDay } };
 }
 
 function toggleLamp(document: SceneDocument, args: Args<"toggleLamp">, generateId: () => string): ToolResult {
@@ -255,7 +263,10 @@ function toggleLamp(document: SceneDocument, args: Args<"toggleLamp">, generateI
     const next = setLampOn(document, existingLamp.id, args.on);
     return { document: next, changed: true, resultForLLM: { ok: true, itemId: args.itemId, on: args.on } };
   }
-  const lamp = createLampLight(generateId(), args.itemId, { on: args.on });
+  const lamp = createLampLight(generateId(), args.itemId, {
+    on: args.on,
+    position: { x: item.position.x, y: FIXTURE_MOUNT_HEIGHT.table, z: item.position.z },
+  });
   const next = addLampLight(document, lamp);
   return { document: next, changed: true, resultForLLM: { ok: true, itemId: args.itemId, on: args.on, created: true } };
 }
@@ -265,12 +276,18 @@ function querySpace(document: SceneDocument, context: ExecuteContext): ToolResul
   if (!room) {
     return unchanged(document, { ok: true, room: null, note: "No room has been drawn yet." });
   }
-  const floorArea = polygonAbsArea(room.walls);
-  const footprintArea = document.furniture.reduce((sum, f) => sum + f.dimensions.w * f.dimensions.d, 0);
-  const xs = room.walls.map((w) => w.x);
-  const ys = room.walls.map((w) => w.y);
+  const corners = roomCorners(room);
+  const floorArea = polygonAbsArea(corners);
+  const footprintArea = document.furniture.reduce(
+    (sum, f) => sum + (f.dimensions ? f.dimensions.w * f.dimensions.d : 0),
+    0,
+  );
+  const xs = corners.map((c) => c.x);
+  const zs = corners.map((c) => c.z);
   const width = Math.max(...xs) - Math.min(...xs);
-  const depth = Math.max(...ys) - Math.min(...ys);
+  const depth = Math.max(...zs) - Math.min(...zs);
+  const ceilingHeight = room.walls.reduce((max, w) => Math.max(max, w.height), 0);
+  const openings = document.openings.filter((o) => room.walls.some((w) => w.id === o.wallId));
 
   return unchanged(document, {
     ok: true,
@@ -280,16 +297,16 @@ function querySpace(document: SceneDocument, context: ExecuteContext): ToolResul
       boundingSize: { width: round(width), depth: round(depth) },
       floorAreaM2: round(floorArea),
       approxFreeFloorAreaM2: round(Math.max(0, floorArea - footprintArea)),
-      ceilingHeight: room.height,
-      openings: room.openings.map((o) => ({ id: o.id, type: o.type, width: o.width }))
+      ceilingHeight,
+      openings: openings.map((o) => ({ id: o.id, kind: o.kind, width: o.width })),
     },
     items: document.furniture.map((f) => ({
       itemId: f.id,
       catalogId: f.catalogId,
       position: { x: round(f.position.x), z: round(f.position.z) },
-      rotationDeg: round((f.rotationY * 180) / Math.PI),
-      footprint: { w: f.dimensions.w, d: f.dimensions.d }
-    }))
+      rotationDeg: round(f.rotationY),
+      footprint: f.dimensions ? { w: f.dimensions.w, d: f.dimensions.d } : null,
+    })),
   });
 }
 
@@ -297,7 +314,7 @@ function suggestLayout(
   document: SceneDocument,
   args: Args<"suggestLayout">,
   context: ExecuteContext,
-  generateId: () => string
+  generateId: () => string,
 ): ToolResult {
   const room = activeRoom(document, context.roomId);
   const planned = planLayout({
@@ -305,14 +322,14 @@ function suggestLayout(
     style: args.style,
     budget: args.budget,
     itemCatalogIds: args.itemCatalogIds,
-    generateId
+    generateId,
   });
 
   if (planned.requests.length === 0) {
     return unchanged(document, {
       ok: false,
       error: "no_items_selected",
-      message: "No catalog items matched the request (check style/budget/itemCatalogIds)."
+      message: "No catalog items matched the request (check style/budget/itemCatalogIds).",
     });
   }
 
@@ -332,16 +349,12 @@ function suggestLayout(
     resultForLLM: {
       ok: changed,
       totalPrice,
-      ...(summarizePlacement(result) as object)
-    }
+      ...(summarizePlacement(result) as object),
+    },
   };
 }
 
 // --- helpers ---------------------------------------------------------------
-
-function needsFront(category: string): boolean {
-  return ["sofa", "armchair", "chair", "bed"].includes(category.toLowerCase());
-}
 
 function unchanged(document: SceneDocument, resultForLLM: unknown): ToolResult {
   return { document, changed: false, resultForLLM };

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Sky, Line } from '@react-three/drei';
-import { SceneView } from '@interior/renderer';
+import { SceneView, sunColor as sunColorFromElev, sunIntensity as sunIntensityFromElev, skyColors, documentWorldBounds, fitSunShadowCamera } from '@interior/renderer';
 import {
   sunVector,
   sunFromAngles,
@@ -15,8 +15,9 @@ import {
 import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { PerfProbe } from './PerfProbe';
-import { SceneEnvironment, RealismEffects, PhotoCapture } from './Realism';
+import { SceneEnvironment, RealismEffects, PhotoCapture, WindowFillLights } from './Realism';
 import { FurnitureGizmo } from './FurnitureGizmo';
+import { collidingFurnitureIds } from './collisionUi';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -100,8 +101,67 @@ function ToneMapping({ exposure }: { exposure: number }) {
   useEffect(() => {
     gl.toneMapping = THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = exposure;
+    gl.outputColorSpace = THREE.SRGBColorSpace;
+    gl.shadowMap.enabled = true;
+    gl.shadowMap.type = THREE.PCFSoftShadowMap;
   }, [gl, exposure]);
   return null;
+}
+
+/** Aim a directional light at a fitted room center so the shadow map isn't wasted. */
+function SunDirectional({
+  toSun,
+  elevation,
+  color,
+  intensity,
+  shadowMap,
+  castShadow,
+}: {
+  toSun: { x: number; y: number; z: number };
+  elevation: number;
+  color: string;
+  intensity: number;
+  shadowMap: number;
+  castShadow: boolean;
+}) {
+  const lightRef = useRef<THREE.DirectionalLight>(null);
+  const doc = useSceneStore((s) => s.doc);
+  const bounds = useMemo(() => documentWorldBounds(doc) ?? {
+    min: { x: -3, y: 0, z: -3 },
+    max: { x: 3, y: 2.7, z: 3 },
+  }, [doc]);
+  const fit = useMemo(() => fitSunShadowCamera(bounds, toSun), [bounds, toSun]);
+
+  useEffect(() => {
+    const light = lightRef.current;
+    if (!light) return;
+    light.target.position.set(fit.target.x, fit.target.y, fit.target.z);
+    light.target.updateMatrixWorld();
+    light.shadow.camera.updateProjectionMatrix();
+  }, [fit]);
+
+  if (intensity <= 0.01 || elevation < -0.05) return null;
+
+  return (
+    <directionalLight
+      ref={lightRef}
+      position={[fit.position.x, fit.position.y, fit.position.z]}
+      intensity={intensity}
+      color={color}
+      castShadow={castShadow}
+      shadow-mapSize={[shadowMap, shadowMap]}
+      shadow-bias={-0.0004}
+      shadow-normalBias={0.04}
+      shadow-camera-left={-fit.halfExtent}
+      shadow-camera-right={fit.halfExtent}
+      shadow-camera-top={fit.halfExtent}
+      shadow-camera-bottom={-fit.halfExtent}
+      shadow-camera-near={fit.near}
+      shadow-camera-far={fit.far}
+    >
+      <object3D attach="target" position={[fit.target.x, fit.target.y, fit.target.z]} />
+    </directionalLight>
+  );
 }
 
 /** Advances the time-of-day while playing (~48s per full day). */
@@ -301,16 +361,18 @@ export function Scene3D({ active }: { active: boolean }) {
   const luxOn = useUiStore((s) => s.luxOn);
   const setAvgLux = useUiStore((s) => s.setAvgLux);
   const enhancedRealism = useUiStore((s) => s.enhancedRealism);
-  const cam = doc.view.camera;
+  const cam = doc.view?.camera ?? { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } };
+
+  const collidingIds = useMemo(() => collidingFurnitureIds(doc), [doc]);
 
   const lampSamples = useMemo<LampSample[]>(
     () =>
-      doc.lights.map((l) => ({ x: l.position.x, y: l.position.y, z: l.position.z, intensityCandela: l.intensityCandela })),
+      (doc.lights ?? []).map((l) => ({ x: l.position.x, y: l.position.y, z: l.position.z, intensityCandela: l.intensityCandela })),
     [doc.lights],
   );
   const lampsKey = useMemo(
     () =>
-      doc.lights.map((l) => `${l.position.x},${l.position.y},${l.position.z},${l.intensityCandela},${l.on},${l.auto}`).join('|'),
+      (doc.lights ?? []).map((l) => `${l.position.x},${l.position.y},${l.position.z},${l.intensityCandela},${l.on},${l.auto}`).join('|'),
     [doc.lights],
   );
 
@@ -361,34 +423,76 @@ export function Scene3D({ active }: { active: boolean }) {
   }, [showSeasons, sunMode, doc.view.timeOfDay, doc.site.lat, doc.site.lng, doc.site.trueNorthOffsetDeg]);
 
   const day = clamp01(sun.y * 3);
-  const dist = 30;
-  const shadowMap = SHADOW_MAP[quality];
+  const elevation = sun.altitude ?? Math.asin(clamp(sun.y, -1, 1));
+  const shadowMap = enhancedRealism
+    ? quality === 'low'
+      ? SHADOW_MAP.med
+      : SHADOW_MAP.high
+    : SHADOW_MAP.low;
   const wx = WEATHER[weather];
+  const sky = useMemo(() => skyColors(elevation), [elevation]);
 
   // What's actually emitting right now — matches the renderer's on/off + auto-ramp
   // logic, so the lux heatmap reflects what you actually see, not the raw settings.
   const litLampSamples = useMemo(
     () =>
       lampSamples
-        .map((l, i) => ({ ...l, intensityCandela: effectiveFixtureIntensity({ ...doc.lights[i], intensityCandela: l.intensityCandela }, day) }))
+        .map((l, i) => {
+          const src = doc.lights?.[i];
+          if (!src) return { ...l, intensityCandela: 0 };
+          return {
+            ...l,
+            intensityCandela: effectiveFixtureIntensity(
+              { intensityCandela: l.intensityCandela, on: src.on, auto: src.auto },
+              day,
+            ),
+          };
+        })
         .filter((l) => l.intensityCandela > 0),
     [lampSamples, doc.lights, day],
   );
 
   const effWarm = clamp(sunWarmth + (weather === 'golden' ? 0.4 : 0) + (1 - day) * 0.35, -1, 1);
+  const elevSunColor = useMemo(() => sunColorFromElev(elevation), [elevation]);
   const sunColor = useMemo(() => {
-    const c = new THREE.Color('#fff4e0');
-    if (effWarm >= 0) c.lerp(new THREE.Color('#ffb060'), effWarm);
-    else c.lerp(new THREE.Color('#cfe0ff'), -effWarm);
+    const c = elevSunColor.clone();
+    if (effWarm >= 0) c.lerp(new THREE.Color('#ffb060'), effWarm * 0.55);
+    else c.lerp(new THREE.Color('#cfe0ff'), -effWarm * 0.45);
     return `#${c.getHexString()}`;
-  }, [effWarm]);
+  }, [elevSunColor, effWarm]);
+  // Realism ON: brighter, warmer sun. OFF: flatter/dimmer so the toggle reads clearly.
+  const sunPower =
+    sunIntensityFromElev(elevation) *
+    sunIntensity *
+    wx.sunMul *
+    (enhancedRealism ? 1.45 : 0.7);
+
+  const effectiveExposure =
+    exposure * (enhancedRealism ? 0.95 + (1 - day) * 0.22 : 1.05);
+
+  const allWalls = useMemo(() => doc.rooms.flatMap((r) => r.walls), [doc.rooms]);
+  const envIntensity = enhancedRealism
+    ? Math.max(0.55, sky.envIntensity * (1.05 + day * 0.45) * wx.ambientMul)
+    : 0.28 + day * 0.12;
+
+  const floorCenter = useMemo(
+    () => ({
+      x: (studyBounds.minX + studyBounds.maxX) / 2,
+      z: (studyBounds.minZ + studyBounds.maxZ) / 2,
+    }),
+    [studyBounds],
+  );
+  const floorSpan = useMemo(
+    () => Math.max(studyBounds.maxX - studyBounds.minX, studyBounds.maxZ - studyBounds.minZ),
+    [studyBounds],
+  );
 
   return (
     <Canvas
       frameloop={active ? 'always' : 'never'}
       shadows="soft"
       camera={{ position: [cam.position.x, cam.position.y, cam.position.z], fov: 50 }}
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, powerPreference: 'high-performance' }}
       onPointerMissed={() => selectFurniture(null)}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
@@ -401,35 +505,54 @@ export function Scene3D({ active }: { active: boolean }) {
         });
       }}
     >
-      <ToneMapping exposure={exposure} />
+      <ToneMapping exposure={effectiveExposure} />
       {sunMode === 'auto' && <SunAnimator enabled={playing} />}
-      {/* Always on: material *finish* (matte→gloss) is a roughness change, and roughness is
-          only visible as a change in what the surface reflects. With no environment there's
-          nothing to reflect, so the Materials panel's finish buttons would appear to do
-          nothing. The expensive part of realism (SSAO/bloom) stays behind the toggle. */}
-      <SceneEnvironment intensity={enhancedRealism ? 1 : 0.65} />
+      <SceneEnvironment intensity={envIntensity} elevationRad={elevation} realism={enhancedRealism} />
       <PhotoCapture active={active} />
 
-      <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={wx.turbidity} rayleigh={day > 0.2 ? wx.rayleigh : 3} />
-      <hemisphereLight intensity={(0.18 + day * 0.5) * wx.ambientMul} color="#bcd4ff" groundColor="#3a352f" />
-      <ambientLight intensity={(0.05 + day * 0.12) * wx.ambientMul} />
-      {sun.y > 0 && (
-        <directionalLight
-          position={[sun.x * dist, sun.y * dist, sun.z * dist]}
-          intensity={(0.4 + day * 3.2) * sunIntensity * wx.sunMul}
-          color={sunColor}
-          castShadow
-          shadow-mapSize={[shadowMap, shadowMap]}
-          shadow-bias={-0.0002}
-          shadow-normalBias={0.06}
-          shadow-camera-left={-4.5}
-          shadow-camera-right={4.5}
-          shadow-camera-top={4.5}
-          shadow-camera-bottom={-4.5}
-          shadow-camera-near={0.5}
-          shadow-camera-far={60}
+      {/* Keep drei Sky only when Realism is off — Realism uses the matching sky IBL as backdrop. */}
+      {!enhancedRealism && (
+        <Sky sunPosition={[sun.x, sun.y, sun.z]} turbidity={wx.turbidity} rayleigh={day > 0.2 ? wx.rayleigh : 3} />
+      )}
+      <hemisphereLight
+        intensity={
+          enhancedRealism
+            ? sky.hemiIntensity * wx.ambientMul * 1.35
+            : 0.35 * wx.ambientMul
+        }
+        color={enhancedRealism ? sky.horizon : '#c8d4e8'}
+        groundColor={enhancedRealism ? sky.ground : '#5a554c'}
+      />
+      <ambientLight
+        intensity={
+          enhancedRealism
+            ? 0.03 + day * 0.06 * wx.ambientMul
+            : 0.22 + day * 0.15 * wx.ambientMul
+        }
+      />
+      {/* Soft bounce from the floor — fills shadow side without flattening contrast. */}
+      {enhancedRealism && (
+        <hemisphereLight
+          intensity={0.18 + day * 0.28}
+          color="#fff6e8"
+          groundColor={doc.rooms[0]?.materials.floor.color ?? '#b9a884'}
         />
       )}
+      <SunDirectional
+        toSun={sun}
+        elevation={elevation}
+        color={sunColor}
+        intensity={sunPower}
+        shadowMap={shadowMap}
+        castShadow
+      />
+      <WindowFillLights
+        openings={doc.openings ?? []}
+        walls={allWalls}
+        sunDir={sun}
+        dayFactor={day}
+        enabled={enhancedRealism}
+      />
       {showSun && sun.y > -0.15 && <SunDisc x={sun.x} y={sun.y} z={sun.z} />}
       {showSunPath && (
         <>
@@ -471,9 +594,13 @@ export function Scene3D({ active }: { active: boolean }) {
         selectedFurnitureId={selectedFurnitureId}
         onSelectFurniture={selectFurniture}
         dayFactor={day}
+        collidingFurnitureIds={collidingIds}
+        realism={enhancedRealism}
       />
       <FurnitureGizmo />
-      <gridHelper args={[24, 24, '#2a2a30', '#202024']} position={[0, -0.03, 0]} />
+      {!enhancedRealism && (
+        <gridHelper args={[24, 24, '#2a2a30', '#202024']} position={[0, -0.03, 0]} />
+      )}
       <OrbitControls
         target={[cam.target.x, cam.target.y, cam.target.z]}
         maxPolarAngle={Math.PI / 2.05}
@@ -482,7 +609,9 @@ export function Scene3D({ active }: { active: boolean }) {
         makeDefault
       />
       <PerfProbe />
-      {enhancedRealism && <RealismEffects quality={quality} />}
+      {enhancedRealism && (
+        <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} />
+      )}
     </Canvas>
   );
 }

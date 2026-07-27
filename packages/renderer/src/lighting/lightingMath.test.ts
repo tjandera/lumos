@@ -74,7 +74,7 @@ describe("documentWorldBounds", () => {
     expect(documentWorldBounds(createEmptyDocument("e"))).toBeNull();
   });
 
-  it("covers room footprint (plan-Y -> world-Z) and ceiling height", () => {
+  it("covers room footprint (wall endpoints on X/Z) and wall height", () => {
     const doc: SceneDocument = {
       ...createEmptyDocument("r"),
       rooms: [
@@ -82,14 +82,16 @@ describe("documentWorldBounds", () => {
           id: "room-1",
           name: "R",
           walls: [
-            { x: 0, y: 0 },
-            { x: 4, y: 0 },
-            { x: 4, y: 3 },
-            { x: 0, y: 3 }
+            { id: "wall-N", start: { x: 0, z: 0 }, end: { x: 4, z: 0 }, thickness: 0.15, height: 2.5 },
+            { id: "wall-E", start: { x: 4, z: 0 }, end: { x: 4, z: 3 }, thickness: 0.15, height: 2.5 },
+            { id: "wall-S", start: { x: 4, z: 3 }, end: { x: 0, z: 3 }, thickness: 0.15, height: 2.5 },
+            { id: "wall-W", start: { x: 0, z: 3 }, end: { x: 0, z: 0 }, thickness: 0.15, height: 2.5 }
           ],
-          wallThickness: 0.15,
-          height: 2.5,
-          openings: []
+          materials: {
+            wall: { color: "#efeae2", finish: "matte" },
+            floor: { color: "#d9d2c7", finish: "matte" },
+            ceiling: { color: "#f5f2ea", finish: "matte" }
+          }
         }
       ]
     };

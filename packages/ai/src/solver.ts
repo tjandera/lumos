@@ -13,23 +13,35 @@
  * clock, no iteration-order surprises. This is what makes the package testable
  * as the QA surface for Phase 4.
  *
- * Coordinate mapping (see core/geometry.ts): the room's wall polyline lives in
- * the plan XY plane; plan-X -> world-X and plan-Y -> world-Z. So a wall point
- * `(x, y)` is the world floor point `(x, z=y)`. Furniture `position.y` is the
- * floor height (0 for floor-standing items).
+ * Coordinate mapping (see core/geometry.ts): rooms are stored as explicit wall
+ * segments already living in the world X/Z plane (`Wall.start`/`Wall.end` are
+ * `{ x, z }`), so no plan-space remapping is needed. Furniture `position.y` is
+ * the floor height (0 for floor-standing items). Rotation is DEGREES on the
+ * document boundary (`FurnitureInstance.rotationY`, `SolvedPlacement.rotationY`);
+ * internally the solver works in radians and converts at the edges.
+ *
+ * Openings live on the document (`document.openings`, keyed by `wallId`), not
+ * on the room — callers pass both in, and the solver filters openings down to
+ * the ones whose wall belongs to the room being solved.
  */
 
 import {
   aabbIntersects,
+  DEG2RAD,
   furnitureAABB,
-  deriveWallSegments,
+  pointAlongWall,
+  pointInPolygon,
   polygonCentroid,
+  RAD2DEG,
+  roomCorners,
+  wallSegments,
   type AABB,
-  type FurnitureItem,
   type Dimensions3D,
+  type FurnitureInstance,
+  type Opening,
   type Room,
   type SceneDocument,
-  type Vector3
+  type Vec2,
 } from "@interior/core";
 import { needsFrontClearance } from "./catalog.js";
 
@@ -76,7 +88,8 @@ export interface PlacementRequest {
 export interface SolvedPlacement {
   itemId: string;
   catalogId: string;
-  position: Vector3;
+  position: { x: number; y: number; z: number };
+  /** DEGREES — matches `FurnitureInstance.rotationY`. */
   rotationY: number;
   dimensions: Dimensions3D;
 }
@@ -101,14 +114,10 @@ export interface SolveResult {
   failed: PlacementFailure[];
 }
 
-interface Vec2 {
-  x: number;
-  z: number;
-}
-
 interface Candidate {
   center: Vec2;
-  rotationY: number;
+  /** RADIANS — internal candidate-generation unit; converted to degrees on output. */
+  rotationRad: number;
   /** Generation order index — the deterministic tie-break key. */
   order: number;
 }
@@ -116,25 +125,6 @@ interface Candidate {
 // ---------------------------------------------------------------------------
 // 2D geometry helpers (world XZ plane)
 // ---------------------------------------------------------------------------
-
-/** Room wall polyline as XZ points (plan-Y maps to world-Z). */
-function roomPolygon(room: Room): Vec2[] {
-  return room.walls.map((w) => ({ x: w.x, z: w.y }));
-}
-
-/** Standard even-odd ray-cast point-in-polygon test. */
-function pointInPolygon(poly: Vec2[], p: Vec2): boolean {
-  let inside = false;
-  const n = poly.length;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const a = poly[i] as Vec2;
-    const b = poly[j] as Vec2;
-    const intersects =
-      a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
 
 /** Squared distance from point `p` to segment `a`->`b`. */
 function distSqToSegment(p: Vec2, a: Vec2, b: Vec2): number {
@@ -168,7 +158,7 @@ function distanceToWalls(poly: Vec2[], p: Vec2): number {
   return min;
 }
 
-/** Rotate a local (lx, lz) offset by `theta` into world XZ. */
+/** Rotate a local (lx, lz) offset by `theta` (radians) into world XZ. */
 function rotate(lx: number, lz: number, theta: number): Vec2 {
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
@@ -176,28 +166,24 @@ function rotate(lx: number, lz: number, theta: number): Vec2 {
 }
 
 /** The four world-space footprint corners of an item. */
-function footprintCorners(center: Vec2, dims: Dimensions3D, rotationY: number): Vec2[] {
+function footprintCorners(center: Vec2, dims: Dimensions3D, rotationRad: number): Vec2[] {
   const hw = dims.w / 2;
   const hd = dims.d / 2;
-  return [
-    [-hw, -hd],
-    [hw, -hd],
-    [hw, hd],
-    [-hw, hd]
-  ].map(([lx, lz]) => {
-    const r = rotate(lx as number, lz as number, rotationY);
+  return ([[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]] as const).map(([lx, lz]) => {
+    const r = rotate(lx, lz, rotationRad);
     return { x: center.x + r.x, z: center.z + r.z };
   });
 }
 
-/** Build a transient FurnitureItem for AABB reuse against core's collision. */
-function asItem(center: Vec2, dims: Dimensions3D, rotationY: number): FurnitureItem {
+/** Build a transient probe FurnitureInstance for AABB reuse against core's collision. */
+function asItem(center: Vec2, dims: Dimensions3D, rotationRad: number): FurnitureInstance {
   return {
     id: "__probe__",
     catalogId: "__probe__",
     position: { x: center.x, y: 0, z: center.z },
-    rotationY,
-    dimensions: dims
+    rotationY: rotationRad * RAD2DEG,
+    scale: 1,
+    dimensions: dims,
   };
 }
 
@@ -205,14 +191,15 @@ function asItem(center: Vec2, dims: Dimensions3D, rotationY: number): FurnitureI
 // Candidate generation
 // ---------------------------------------------------------------------------
 
-/** Rotation whose local +Z (item "front") points along `dir`. */
+/** Rotation (radians) whose local +Z (item "front") points along `dir`. */
 function facingRotation(dir: Vec2): number {
   // front(theta) = (-sin, cos); solve for theta pointing along dir.
   return Math.atan2(-dir.x, dir.z);
 }
 
 interface WallInfo {
-  index: number;
+  id: string;
+  thickness: number;
   start: Vec2;
   end: Vec2;
   length: number;
@@ -221,25 +208,37 @@ interface WallInfo {
 }
 
 function wallInfos(room: Room, poly: Vec2[]): WallInfo[] {
-  const segments = deriveWallSegments(room.walls);
-  return segments
+  return wallSegments(room)
     .filter((s) => s.length > 1e-6)
     .map((s) => {
-      const start = { x: s.start.x, z: s.start.y };
-      const end = { x: s.end.x, z: s.end.y };
-      const dir = { x: s.dir.x, z: s.dir.y };
       // s.normal is 90deg clockwise from dir; pick the inward-pointing sign by
       // probing just off the wall midpoint.
       let nx = s.normal.x;
-      let nz = s.normal.y;
-      const mid = { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 };
+      let nz = s.normal.z;
+      const mid = { x: (s.wall.start.x + s.wall.end.x) / 2, z: (s.wall.start.z + s.wall.end.z) / 2 };
       const probe = { x: mid.x + nx * 0.05, z: mid.z + nz * 0.05 };
-      if (!pointInPolygon(poly, probe)) {
+      if (!pointInPolygon(probe, poly)) {
         nx = -nx;
         nz = -nz;
       }
-      return { index: s.index, start, end, length: s.length, dir, inwardNormal: { x: nx, z: nz } };
+      return {
+        id: s.wall.id,
+        thickness: s.wall.thickness,
+        start: s.wall.start,
+        end: s.wall.end,
+        length: s.length,
+        dir: s.dir,
+        inwardNormal: { x: nx, z: nz },
+      };
     });
+}
+
+/** Clearance kept from the room's centerline polygon, derived from the
+ * thickest wall (uniform-thickness rooms make this exact). */
+function wallMarginFor(walls: WallInfo[]): number {
+  if (walls.length === 0) return WALL_GAP;
+  const maxThickness = Math.max(...walls.map((w) => w.thickness));
+  return maxThickness / 2 + WALL_GAP;
 }
 
 /**
@@ -249,13 +248,10 @@ function wallInfos(room: Room, poly: Vec2[]): WallInfo[] {
  * filtering happens later.
  */
 function generateCandidates(
-  room: Room,
   poly: Vec2[],
   walls: WallInfo[],
   dims: Dimensions3D,
-  constraints: SolverConstraints,
-  facingTarget: FurnitureItem | undefined,
-  wallMargin: number
+  wallMargin: number,
 ): Candidate[] {
   const candidates: Candidate[] = [];
   let order = 0;
@@ -264,24 +260,21 @@ function generateCandidates(
 
   // 1. Wall-flush candidates: back against each wall, front into the room.
   for (const wall of walls) {
-    const rotationY = facingRotation(wall.inwardNormal);
+    const rotationRad = facingRotation(wall.inwardNormal);
     // Offset from the wall centerline to the item center: half wall thickness
     // (to reach the inner face) + item half-depth + gap.
-    const offset = room.wallThickness / 2 + hd + WALL_GAP;
+    const offset = wall.thickness / 2 + hd + WALL_GAP;
     const usable = wall.length - 2 * (hw + WALL_GAP);
     if (usable < 0) continue;
     const steps = Math.max(1, Math.ceil(usable / WALL_STEP));
     for (let i = 0; i <= steps; i++) {
       const t = steps === 0 ? 0.5 : hw + WALL_GAP + (usable * i) / steps;
-      const along = {
-        x: wall.start.x + wall.dir.x * t,
-        z: wall.start.z + wall.dir.z * t
-      };
+      const along = { x: wall.start.x + wall.dir.x * t, z: wall.start.z + wall.dir.z * t };
       const center = {
         x: along.x + wall.inwardNormal.x * offset,
-        z: along.z + wall.inwardNormal.z * offset
+        z: along.z + wall.inwardNormal.z * offset,
       };
-      candidates.push({ center, rotationY, order: order++ });
+      candidates.push({ center, rotationRad, order: order++ });
     }
   }
 
@@ -297,28 +290,18 @@ function generateCandidates(
     maxZ = Math.max(maxZ, p.z);
   }
 
-  const rotations = orientationsFor(constraints, facingTarget);
+  const rotations = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
   for (let x = minX + wallMargin; x <= maxX - wallMargin + 1e-9; x += GRID_STEP) {
     for (let z = minZ + wallMargin; z <= maxZ - wallMargin + 1e-9; z += GRID_STEP) {
       const center = { x, z };
-      if (!pointInPolygon(poly, center)) continue;
-      for (const rotationY of rotations) {
-        candidates.push({ center, rotationY, order: order++ });
+      if (!pointInPolygon(center, poly)) continue;
+      for (const rotationRad of rotations) {
+        candidates.push({ center, rotationRad, order: order++ });
       }
     }
   }
 
   return candidates;
-}
-
-/** Interior-grid orientations to try (kept small & deterministic). */
-function orientationsFor(constraints: SolverConstraints, facingTarget: FurnitureItem | undefined): number[] {
-  const base = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-  if (constraints.facingItem && facingTarget) {
-    // A rotation that faces the target is worth trying explicitly.
-    return base; // scoring rewards facing; base orientations cover the options.
-  }
-  return base;
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +314,7 @@ interface Obstacle {
 
 function insideRoom(poly: Vec2[], corners: Vec2[], wallMargin: number): boolean {
   for (const c of corners) {
-    if (!pointInPolygon(poly, c)) return false;
+    if (!pointInPolygon(c, poly)) return false;
     if (distanceToWalls(poly, c) < wallMargin - 1e-6) return false;
   }
   return true;
@@ -344,12 +327,20 @@ function collides(aabb: AABB, obstacles: Obstacle[]): boolean {
   return false;
 }
 
-/** The clearance zone in front of an item (along its local +Z front). */
-function frontClearanceZone(center: Vec2, dims: Dimensions3D, rotationY: number, clearance: number): FurnitureItem {
+/** The clearance zone in front of an item (along its local +Z front), plus
+ * the dimensions used to build it (`asItem`'s dims aren't readable back off
+ * the probe item since `dimensions` is optional on `FurnitureInstance`). */
+function frontClearanceZone(
+  center: Vec2,
+  dims: Dimensions3D,
+  rotationRad: number,
+  clearance: number,
+): { item: FurnitureInstance; dims: Dimensions3D } {
   const hd = dims.d / 2;
-  const front = rotate(0, hd + clearance / 2, rotationY);
+  const front = rotate(0, hd + clearance / 2, rotationRad);
   const zoneCenter = { x: center.x + front.x, z: center.z + front.z };
-  return asItem(zoneCenter, { w: dims.w, d: clearance, h: dims.h }, rotationY);
+  const zoneDims: Dimensions3D = { w: dims.w, d: clearance, h: dims.h };
+  return { item: asItem(zoneCenter, zoneDims, rotationRad), dims: zoneDims };
 }
 
 // ---------------------------------------------------------------------------
@@ -365,17 +356,13 @@ function nearestVertexDist(poly: Vec2[], p: Vec2): number {
   return min;
 }
 
-function windowCenters(room: Room): Vec2[] {
-  const segments = deriveWallSegments(room.walls);
+function windowCenters(room: Room, openings: Opening[]): Vec2[] {
   const centers: Vec2[] = [];
-  for (const opening of room.openings) {
-    if (opening.type !== "window") continue;
-    const seg = segments[opening.wallIndex];
-    if (!seg) continue;
-    centers.push({
-      x: seg.start.x + seg.dir.x * opening.position,
-      z: seg.start.y + seg.dir.y * opening.position
-    });
+  for (const opening of openings) {
+    if (opening.kind !== "window") continue;
+    const wall = room.walls.find((w) => w.id === opening.wallId);
+    if (!wall) continue;
+    centers.push(pointAlongWall(wall, opening.offset + opening.width / 2));
   }
   return centers;
 }
@@ -384,15 +371,15 @@ interface ScoreContext {
   poly: Vec2[];
   centroid: Vec2;
   windows: Vec2[];
-  facingTarget: FurnitureItem | undefined;
-  adjacentTarget: FurnitureItem | undefined;
+  facingTarget: FurnitureInstance | undefined;
+  adjacentTarget: FurnitureInstance | undefined;
   constraints: SolverConstraints;
   bboxDiagonal: number;
 }
 
 /** Higher is better. Purely soft — every scored candidate is already valid. */
-function scoreCandidate(candidate: Candidate, dims: Dimensions3D, ctx: ScoreContext): number {
-  const { center, rotationY } = candidate;
+function scoreCandidate(candidate: Candidate, ctx: ScoreContext): number {
+  const { center, rotationRad } = candidate;
   const { constraints } = ctx;
   let score = 0;
 
@@ -428,7 +415,7 @@ function scoreCandidate(candidate: Candidate, dims: Dimensions3D, ctx: ScoreCont
     const toTarget = { x: t.x - center.x, z: t.z - center.z };
     const len = Math.hypot(toTarget.x, toTarget.z);
     if (len > 1e-6) {
-      const front = rotate(0, 1, rotationY); // local +Z front in world
+      const front = rotate(0, 1, rotationRad); // local +Z front in world
       const dot = (front.x * toTarget.x + front.z * toTarget.z) / len;
       score += (dot + 1) * 3; // dot in [-1,1] -> [0,6]
       // Mild reward for a comfortable, not-too-far facing distance.
@@ -449,11 +436,45 @@ function clamp01(v: number): number {
 
 function lookupItem(
   id: string | undefined,
-  existing: FurnitureItem[],
-  placedThisBatch: FurnitureItem[]
-): FurnitureItem | undefined {
+  existing: FurnitureInstance[],
+  placedThisBatch: FurnitureInstance[],
+): FurnitureInstance | undefined {
   if (!id) return undefined;
   return placedThisBatch.find((i) => i.id === id) ?? existing.find((i) => i.id === id);
+}
+
+/** Openings on the document whose host wall belongs to this room. */
+function openingsForRoom(room: Room, document: SceneDocument): Opening[] {
+  return document.openings.filter((o) => room.walls.some((w) => w.id === o.wallId));
+}
+
+/** Door swing zones (a square in front of each door), as AABBs to avoid. */
+function doorSwingZones(room: Room, walls: WallInfo[], openings: Opening[]): AABB[] {
+  const zones: AABB[] = [];
+  for (const opening of openings) {
+    if (opening.kind !== "door") continue;
+    const wall = room.walls.find((w) => w.id === opening.wallId);
+    if (!wall) continue;
+    const wallInfo = walls.find((w) => w.id === opening.wallId);
+    if (!wallInfo) continue;
+    const doorCenter = pointAlongWall(wall, opening.offset + opening.width / 2);
+    const swing = opening.width;
+    const zoneCenter = {
+      x: doorCenter.x + wallInfo.inwardNormal.x * (swing / 2),
+      z: doorCenter.z + wallInfo.inwardNormal.z * (swing / 2),
+    };
+    zones.push(
+      furnitureAABB({
+        id: "__door__",
+        catalogId: "__door__",
+        position: { x: zoneCenter.x, y: 0, z: zoneCenter.z },
+        rotationY: 0,
+        scale: 1,
+        dimensions: { w: swing, d: swing, h: 1 },
+      }),
+    );
+  }
+  return zones;
 }
 
 /**
@@ -472,18 +493,18 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
         itemId: req.itemId,
         catalogId: req.catalogId,
         reason: "no-room",
-        message: "There is no room to place furniture in yet."
+        message: "There is no room to place furniture in yet.",
       });
     }
     return { placed, failed };
   }
 
-  const poly = roomPolygon(room);
+  const poly = roomCorners(room);
   const walls = wallInfos(room, poly);
-  const centroid2 = polygonCentroid(room.walls);
-  const centroid: Vec2 = { x: centroid2.x, z: centroid2.y };
-  const windows = windowCenters(room);
-  const wallMargin = room.wallThickness / 2 + WALL_GAP;
+  const centroid = polygonCentroid(poly);
+  const openings = openingsForRoom(room, document);
+  const windows = windowCenters(room, openings);
+  const wallMargin = wallMarginFor(walls);
 
   let minX = Infinity;
   let maxX = -Infinity;
@@ -498,9 +519,9 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
   const bboxDiagonal = Math.max(1e-6, Math.hypot(maxX - minX, maxZ - minZ));
 
   // Door swing zones stay clear for every placement in this batch.
-  const doorZones = doorSwingZones(room, walls);
+  const doorZones = doorSwingZones(room, walls, openings);
 
-  const placedItems: FurnitureItem[] = [];
+  const placedItems: FurnitureInstance[] = [];
 
   for (const req of requests) {
     const clearance = req.constraints.minClearance ?? DEFAULT_CLEARANCE;
@@ -519,7 +540,7 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
     for (const item of placedItems) obstacles.push({ aabb: furnitureAABB(item) });
     for (const zone of doorZones) obstacles.push({ aabb: zone });
 
-    const candidates = generateCandidates(room, poly, walls, req.dimensions, req.constraints, facingTarget, wallMargin);
+    const candidates = generateCandidates(poly, walls, req.dimensions, wallMargin);
 
     const scoreCtx: ScoreContext = {
       poly,
@@ -528,32 +549,33 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
       facingTarget,
       adjacentTarget,
       constraints: req.constraints,
-      bboxDiagonal
+      bboxDiagonal,
     };
 
     let best: { candidate: Candidate; score: number } | undefined;
     let sawInsideCandidate = false;
 
     for (const candidate of candidates) {
-      const corners = footprintCorners(candidate.center, req.dimensions, candidate.rotationY);
+      const corners = footprintCorners(candidate.center, req.dimensions, candidate.rotationRad);
       if (!insideRoom(poly, corners, wallMargin)) continue;
       sawInsideCandidate = true;
 
-      const aabb = furnitureAABB(asItem(candidate.center, req.dimensions, candidate.rotationY));
+      const aabb = furnitureAABB(asItem(candidate.center, req.dimensions, candidate.rotationRad));
       if (collides(aabb, obstacles)) continue;
 
       if (enforceFront) {
-        const zone = frontClearanceZone(candidate.center, req.dimensions, candidate.rotationY, clearance);
-        const zoneCorners = footprintCorners(
-          { x: zone.position.x, z: zone.position.z },
-          zone.dimensions,
-          zone.rotationY
+        const { item: zone, dims: zoneDims } = frontClearanceZone(
+          candidate.center,
+          req.dimensions,
+          candidate.rotationRad,
+          clearance,
         );
+        const zoneCorners = footprintCorners({ x: zone.position.x, z: zone.position.z }, zoneDims, candidate.rotationRad);
         if (!insideRoom(poly, zoneCorners, wallMargin)) continue;
         if (collides(furnitureAABB(zone), obstacles)) continue;
       }
 
-      const score = scoreCandidate(candidate, req.dimensions, scoreCtx);
+      const score = scoreCandidate(candidate, scoreCtx);
       if (
         !best ||
         score > best.score + 1e-9 ||
@@ -564,17 +586,19 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
     }
 
     if (best) {
+      const rotationY = best.candidate.rotationRad * RAD2DEG;
       placed.push({
         itemId: req.itemId,
         catalogId: req.catalogId,
         position: { x: best.candidate.center.x, y: 0, z: best.candidate.center.z },
-        rotationY: best.candidate.rotationY,
-        dimensions: req.dimensions
+        rotationY,
+        dimensions: req.dimensions,
       });
-      placedItems.push(asItem(best.candidate.center, req.dimensions, best.candidate.rotationY));
+      const placedItem = asItem(best.candidate.center, req.dimensions, best.candidate.rotationRad);
       // Rename the probe id so subsequent adjacency lookups can resolve it.
-      placedItems[placedItems.length - 1]!.id = req.itemId;
-      placedItems[placedItems.length - 1]!.catalogId = req.catalogId;
+      placedItem.id = req.itemId;
+      placedItem.catalogId = req.catalogId;
+      placedItems.push(placedItem);
       continue;
     }
 
@@ -582,8 +606,8 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
     failed.push({
       itemId: req.itemId,
       catalogId: req.catalogId,
-      reason: diagnoseFailure(req, room, poly, wallMargin, sawInsideCandidate, enforceFront),
-      message: failureMessage(req, sawInsideCandidate, enforceFront)
+      reason: diagnoseFailure(req, poly, wallMargin, sawInsideCandidate, enforceFront),
+      message: failureMessage(req, sawInsideCandidate, enforceFront),
     });
   }
 
@@ -597,6 +621,8 @@ export interface ValidateOptions {
   enforceFront?: boolean;
   /** Id of an existing item to exclude from collision (the item being moved). */
   excludeId?: string;
+  /** Explicit footprint to validate against; falls back to `item.dimensions`. */
+  dimensions?: Dimensions3D;
 }
 
 /**
@@ -609,73 +635,42 @@ export interface ValidateOptions {
 export function isPlacementValid(
   document: SceneDocument,
   room: Room | undefined,
-  item: FurnitureItem,
-  options: ValidateOptions = {}
+  item: FurnitureInstance,
+  options: ValidateOptions = {},
 ): boolean {
   if (!room) return false;
-  const poly = roomPolygon(room);
+  const dims = options.dimensions ?? item.dimensions;
+  if (!dims) return false;
+
+  const poly = roomCorners(room);
   const walls = wallInfos(room, poly);
-  const wallMargin = room.wallThickness / 2 + WALL_GAP;
+  const wallMargin = wallMarginFor(walls);
+  const rotationRad = item.rotationY * DEG2RAD;
   const center: Vec2 = { x: item.position.x, z: item.position.z };
 
-  const corners = footprintCorners(center, item.dimensions, item.rotationY);
+  const corners = footprintCorners(center, dims, rotationRad);
   if (!insideRoom(poly, corners, wallMargin)) return false;
 
+  const openings = openingsForRoom(room, document);
   const obstacles: Obstacle[] = [];
   for (const other of document.furniture) {
     if (other.id === item.id || other.id === options.excludeId) continue;
     obstacles.push({ aabb: furnitureAABB(other) });
   }
-  for (const zone of doorSwingZones(room, walls)) obstacles.push({ aabb: zone });
+  for (const zone of doorSwingZones(room, walls, openings)) obstacles.push({ aabb: zone });
 
-  const aabb = furnitureAABB(asItem(center, item.dimensions, item.rotationY));
+  const aabb = furnitureAABB(asItem(center, dims, rotationRad));
   if (collides(aabb, obstacles)) return false;
 
   if (options.enforceFront) {
     const clearance = options.clearance ?? DEFAULT_CLEARANCE;
-    const zone = frontClearanceZone(center, item.dimensions, item.rotationY, clearance);
-    const zoneCorners = footprintCorners(
-      { x: zone.position.x, z: zone.position.z },
-      zone.dimensions,
-      zone.rotationY
-    );
+    const { item: zone, dims: zoneDims } = frontClearanceZone(center, dims, rotationRad, clearance);
+    const zoneCorners = footprintCorners({ x: zone.position.x, z: zone.position.z }, zoneDims, rotationRad);
     if (!insideRoom(poly, zoneCorners, wallMargin)) return false;
     if (collides(furnitureAABB(zone), obstacles)) return false;
   }
 
   return true;
-}
-
-/** Door swing zones (a square in front of each door), as AABBs to avoid. */
-function doorSwingZones(room: Room, walls: WallInfo[]): AABB[] {
-  const segments = deriveWallSegments(room.walls);
-  const zones: AABB[] = [];
-  for (const opening of room.openings) {
-    if (opening.type !== "door") continue;
-    const seg = segments[opening.wallIndex];
-    if (!seg) continue;
-    const wall = walls.find((w) => w.index === opening.wallIndex);
-    if (!wall) continue;
-    const doorCenter = {
-      x: seg.start.x + seg.dir.x * opening.position,
-      z: seg.start.y + seg.dir.y * opening.position
-    };
-    const swing = opening.width;
-    const zoneCenter = {
-      x: doorCenter.x + wall.inwardNormal.x * (swing / 2),
-      z: doorCenter.z + wall.inwardNormal.z * (swing / 2)
-    };
-    zones.push(
-      furnitureAABB({
-        id: "__door__",
-        catalogId: "__door__",
-        position: { x: zoneCenter.x, y: 0, z: zoneCenter.z },
-        rotationY: 0,
-        dimensions: { w: swing, d: swing, h: 1 }
-      })
-    );
-  }
-  return zones;
 }
 
 function itemFitsRoomBounds(poly: Vec2[], dims: Dimensions3D, wallMargin: number): boolean {
@@ -697,11 +692,10 @@ function itemFitsRoomBounds(poly: Vec2[], dims: Dimensions3D, wallMargin: number
 
 function diagnoseFailure(
   req: PlacementRequest,
-  _room: Room,
   poly: Vec2[],
   wallMargin: number,
   sawInsideCandidate: boolean,
-  enforceFront: boolean
+  enforceFront: boolean,
 ): FailureReason {
   if (!itemFitsRoomBounds(poly, req.dimensions, wallMargin)) return "too-big";
   if (!sawInsideCandidate) return "too-big";

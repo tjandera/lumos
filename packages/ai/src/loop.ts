@@ -13,7 +13,7 @@
  * the model never writes coordinates directly.
  */
 
-import type { SceneDocument } from "@interior/core";
+import { roomCorners, type SceneDocument } from "@interior/core";
 import type { CatalogItem } from "./catalog.js";
 import { executeTool, type ExecuteContext } from "./executor.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -47,11 +47,12 @@ export interface RunTurnOptions {
 function roomSummary(document: SceneDocument, roomId?: string): string | undefined {
   const room = roomId ? document.rooms.find((r) => r.id === roomId) : document.rooms[0];
   if (!room) return undefined;
-  const xs = room.walls.map((w) => w.x);
-  const ys = room.walls.map((w) => w.y);
-  if (xs.length === 0) return `${room.name} (no walls yet)`;
+  if (room.walls.length === 0) return `${room.name} (no walls yet)`;
+  const corners = roomCorners(room);
+  const xs = corners.map((c) => c.x);
+  const zs = corners.map((c) => c.z);
   const width = (Math.max(...xs) - Math.min(...xs)).toFixed(1);
-  const depth = (Math.max(...ys) - Math.min(...ys)).toFixed(1);
+  const depth = (Math.max(...zs) - Math.min(...zs)).toFixed(1);
   return `${room.name}, roughly ${width}m x ${depth}m, ${document.furniture.length} items placed.`;
 }
 

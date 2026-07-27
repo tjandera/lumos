@@ -1,56 +1,95 @@
 /**
- * React-three-fiber component that renders a scene document's rooms as 3D wall
- * and floor meshes. Kept thin: all geometry construction lives in the pure,
- * testable helpers in `./geometry3d`.
+ * React-three-fiber component that renders a scene document's rooms as 3D
+ * wall and floor meshes. Kept thin: all wall-extrusion geometry construction
+ * lives in the pure, testable helpers in `./wallGeometry`. This is a lighter
+ * counterpart to `SceneView` — walls + floor only, no furniture/fixtures —
+ * useful for hosts that bring their own furniture/fixture layers.
  */
 
 // Importing the react-three-fiber types augments the global JSX namespace with
 // the three.js intrinsic elements (<mesh>, <group>, <meshStandardMaterial>, ...).
 import type {} from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type JSX } from "react";
 import * as THREE from "three";
-import type { Room, SceneDocument } from "@interior/core";
-import { buildRoomGeometries } from "./geometry3d.js";
+import type { Opening, Room, SceneDocument, Wall } from "@interior/core";
+import { computeWallShape, buildWallGeometry } from "./wallGeometry.js";
 
 export interface RoomSceneProps {
   document: SceneDocument;
-  /** Wall surface color. */
+  /** Wall surface color override; defaults to each room's own wall material. */
   wallColor?: string;
-  /** Floor surface color. */
+  /** Floor surface color override; defaults to each room's own floor material. */
   floorColor?: string;
 }
 
 interface RoomMeshesProps {
   room: Room;
-  wallColor: string;
-  floorColor: string;
+  openings: Opening[];
+  wallColor?: string;
+  floorColor?: string;
 }
 
-function RoomMeshes({ room, wallColor, floorColor }: RoomMeshesProps): JSX.Element {
-  const { walls, floor } = useMemo(() => buildRoomGeometries(room), [room]);
+function wallWorldTransform(wall: Wall): { position: [number, number, number]; rotationY: number } {
+  const dx = wall.end.x - wall.start.x;
+  const dz = wall.end.z - wall.start.z;
+  return { position: [wall.start.x, 0, wall.start.z], rotationY: Math.atan2(-dz, dx) };
+}
 
-  // Dispose GPU resources when geometry is rebuilt or the room unmounts.
-  useEffect(() => {
-    return () => {
-      walls.forEach((g) => g.dispose());
-      floor.dispose();
-    };
-  }, [walls, floor]);
+function roomFootprint(room: Room): { center: { x: number; z: number }; size: { x: number; z: number } } {
+  const xs: number[] = [];
+  const zs: number[] = [];
+  for (const wall of room.walls) {
+    xs.push(wall.start.x, wall.end.x);
+    zs.push(wall.start.z, wall.end.z);
+  }
+  if (xs.length === 0) return { center: { x: 0, z: 0 }, size: { x: 0, z: 0 } };
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+  return { center: { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 }, size: { x: maxX - minX, z: maxZ - minZ } };
+}
+
+function WallMeshes({ walls, openings, wallColor }: { walls: Wall[]; openings: Opening[]; wallColor?: string }) {
+  const geometries = useMemo(
+    () => walls.map((wall) => buildWallGeometry(computeWallShape(wall, openings))),
+    [walls, openings],
+  );
+  useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
+
+  return (
+    <>
+      {walls.map((wall, index) => {
+        const { position, rotationY } = wallWorldTransform(wall);
+        return (
+          <mesh
+            key={wall.id}
+            geometry={geometries[index]}
+            position={position}
+            rotation={[0, rotationY, 0]}
+            castShadow
+            receiveShadow
+            userData={{ blocksLight: true }}
+          >
+            <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} roughness={0.9} />
+          </mesh>
+        );
+      })}
+    </>
+  );
+}
+
+function RoomMeshes({ room, openings, wallColor, floorColor }: RoomMeshesProps): JSX.Element {
+  const { center, size } = useMemo(() => roomFootprint(room), [room]);
+  const wall = wallColor ?? room.materials.wall.color;
+  const floor = floorColor ?? room.materials.floor.color;
 
   return (
     <group name={`room-${room.id}`}>
-      {walls.map((geometry, index) => (
-        <mesh
-          key={index}
-          geometry={geometry}
-          castShadow
-          receiveShadow
-        >
-          <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} roughness={0.9} />
-        </mesh>
-      ))}
-      <mesh geometry={floor} receiveShadow>
-        <meshStandardMaterial color={floorColor} roughness={0.85} />
+      <WallMeshes walls={room.walls} openings={openings} wallColor={wall} />
+      <mesh position={[center.x, 0, center.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[size.x, size.z]} />
+        <meshStandardMaterial color={floor} roughness={0.85} />
       </mesh>
     </group>
   );
@@ -60,15 +99,17 @@ function RoomMeshes({ room, wallColor, floorColor }: RoomMeshesProps): JSX.Eleme
  * Render every room in the document. Drop this inside an r3f `<Canvas shadows>`
  * alongside your lighting rig.
  */
-export function RoomScene({
-  document,
-  wallColor = "#e8e4dc",
-  floorColor = "#b7a58f"
-}: RoomSceneProps): JSX.Element {
+export function RoomScene({ document, wallColor, floorColor }: RoomSceneProps): JSX.Element {
   return (
     <group name="room-scene">
       {document.rooms.map((room) => (
-        <RoomMeshes key={room.id} room={room} wallColor={wallColor} floorColor={floorColor} />
+        <RoomMeshes
+          key={room.id}
+          room={room}
+          openings={document.openings.filter((o) => room.walls.some((w) => w.id === o.wallId))}
+          wallColor={wallColor}
+          floorColor={floorColor}
+        />
       ))}
     </group>
   );

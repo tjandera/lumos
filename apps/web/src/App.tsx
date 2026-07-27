@@ -1,4 +1,4 @@
-import { RefreshCw, Sun, Palette, Camera, Move, RotateCw } from 'lucide-react';
+import { RefreshCw, Sun, Palette, Camera, Move, RotateCw, Sparkles } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -14,6 +14,11 @@ import { RoomImportPanel } from './RoomImportPanel';
 import { ReferencePhotoPanel } from './ReferencePhotoPanel';
 import { ImportSummaryBanner } from './ImportSummaryBanner';
 import { useGlobalShortcuts } from './useGlobalShortcuts';
+import { SelectionStatus } from './SelectionStatus';
+import { RoomStatus } from './RoomStatus';
+import { WelcomeTips } from './WelcomeTips';
+import { DesignTransfer } from './DesignTransfer';
+import { PhotoResultModal } from './PhotoResultModal';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -28,7 +33,9 @@ export default function App() {
       <Scene3D active={mode === '3d'} />
       {mode === 'plan' && <PlanEditor />}
       {mode === '3d' && <PerfHud />}
+      <RoomStatus />
       {mode === '3d' && <TimeOfDayBar />}
+      {mode === '3d' && <SelectionStatus />}
       {mode === '3d' && lightingOpen && <LightingPanel />}
       {mode === '3d' && materialsOpen && <MaterialsPanel />}
       <CatalogPanel />
@@ -36,6 +43,8 @@ export default function App() {
       {roomPhotoEnabled && <RoomImportPanel />}
       <ReferencePhotoPanel />
       {roomPhotoEnabled && <ImportSummaryBanner />}
+      <WelcomeTips />
+      <PhotoResultModal />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );
@@ -43,7 +52,7 @@ export default function App() {
 
 function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; roomPhotoEnabled: boolean; mode: ViewMode }) {
   const setMode = useUiStore((s) => s.setMode);
-  const name = useSceneStore((s) => s.doc.name);
+  const name = useSceneStore((s) => s.doc.meta.name);
   const canUndo = useSceneStore((s) => s.canUndo);
   const canRedo = useSceneStore((s) => s.canRedo);
   const undo = useSceneStore((s) => s.undo);
@@ -57,13 +66,17 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
   const materialsOpen = useUiStore((s) => s.materialsOpen);
   const toggleMaterials = useUiStore((s) => s.toggleMaterials);
   const toggleImport = useUiStore((s) => s.toggleImport);
+  const enhancedRealism = useUiStore((s) => s.enhancedRealism);
+  const toggleEnhancedRealism = useUiStore((s) => s.toggleEnhancedRealism);
+  const photoBusy = useUiStore((s) => s.photoBusy);
+  const requestPhoto = useUiStore((s) => s.requestPhoto);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
   const btn = 'rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20 disabled:opacity-30';
 
   return (
-    <div className="absolute left-3 top-3 flex items-center gap-2 rounded-xl bg-black/60 px-3 py-2 text-white shadow-lg backdrop-blur">
+    <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2 rounded-xl bg-black/60 px-3 py-2 text-white shadow-lg backdrop-blur">
       <div className="flex overflow-hidden rounded-md border border-white/15">
         <button className={seg(mode === '3d')} onClick={() => setMode('3d')}>
           3D
@@ -117,6 +130,23 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
           >
             <Palette size={13} /> Materials
           </button>
+          <button
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+              enhancedRealism ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
+            }`}
+            onClick={toggleEnhancedRealism}
+            title="ON: apartment HDRI, fabric/wood materials, soft shadows, window light"
+          >
+            <Sparkles size={13} /> Realism
+          </button>
+          <button
+            className={`${btn} inline-flex items-center gap-1`}
+            disabled={photoBusy}
+            onClick={requestPhoto}
+            title="One-shot high-quality capture, every setting maxed"
+          >
+            <Camera size={13} /> {photoBusy ? 'Rendering…' : 'Capture'}
+          </button>
         </>
       )}
       <span className="text-white/25">·</span>
@@ -125,6 +155,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
           <Camera size={13} /> Import room
         </button>
       )}
+      <DesignTransfer />
       <button className={btn} onClick={reset} title="Discard changes and reload the sample scene">
         Reset
       </button>

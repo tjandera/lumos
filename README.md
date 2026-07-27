@@ -1,7 +1,8 @@
 # 3D Property Interior Design
 
 Arrange furniture in a 3D model of a home with realistic light & shadow before you buy.
-See `IMPLEMENTATION_PLAN.md` for scope and phases, and `CLAUDE.md` for conventions.
+See `IMPLEMENTATION_PLAN.md` for scope and phases, `CLAUDE.md` for conventions, and
+**`HACKATHON.md` for a 3-minute judge's tour of the live demo.**
 
 ## Status
 
