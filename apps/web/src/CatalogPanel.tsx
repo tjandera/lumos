@@ -2,6 +2,7 @@ import { catalog } from '@interior/catalog';
 import type { SceneDocument } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
+import { FurnitureThumbnail } from './FurnitureThumbnail';
 
 /** Center of the room footprint — where newly added furniture drops in. */
 function roomCenter(doc: SceneDocument): { x: number; z: number } {
@@ -35,17 +36,18 @@ export function CatalogPanel() {
   };
 
   return (
-    <div className="absolute bottom-3 left-3 max-w-[16rem] rounded-xl bg-black/60 p-2 text-white shadow-lg backdrop-blur">
+    <div className="absolute bottom-3 left-3 max-h-[calc(100vh-1.5rem)] max-w-[15rem] overflow-y-auto rounded-xl bg-black/60 p-2 text-white shadow-lg backdrop-blur">
       <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-white/40">Add furniture</div>
-      <div className="flex flex-wrap gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {catalog.map((c) => (
           <button
             key={c.id}
             onClick={() => add(c.id)}
-            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-            title={`${c.width} × ${c.depth} m`}
+            className="flex flex-col items-center gap-1 rounded-md bg-white/10 px-1 py-1.5 hover:bg-white/20"
+            title={`${c.name} — ${c.width} × ${c.depth} m`}
           >
-            {c.name}
+            <FurnitureThumbnail catalogId={c.id} w={c.width} d={c.depth} color={c.color} />
+            <span className="w-full truncate text-center text-[10px] leading-tight text-white/80">{c.name}</span>
           </button>
         ))}
       </div>

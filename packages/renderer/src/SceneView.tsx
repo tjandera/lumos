@@ -280,7 +280,7 @@ function FurnitureBox({
       }}
     >
       {cat.model ? (
-        <Suspense fallback={<PlaceholderBox cat={cat} />}>
+        <Suspense fallback={<PlaceholderBox cat={cat} loading />}>
           <FurnitureModel url={cat.model} targetWidth={cat.width} />
         </Suspense>
       ) : (
@@ -291,12 +291,22 @@ function FurnitureBox({
   );
 }
 
-/** Colored box — the loading/fallback state and what non-model catalog items use. */
-function PlaceholderBox({ cat }: { cat: CatalogItem }) {
+/**
+ * Colored box: what non-model catalog items use permanently, and what a GLB-backed
+ * item shows for the second or two its model is still fetching. `loading` distinguishes
+ * the two — a gentle opacity pulse so a slow model load reads as "still coming," not as
+ * a shipped, final-looking flat box the way a silent, static placeholder would.
+ */
+function PlaceholderBox({ cat, loading }: { cat: CatalogItem; loading?: boolean }) {
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => {
+    if (!loading || !matRef.current) return;
+    matRef.current.opacity = 0.55 + Math.sin(clock.elapsedTime * 3.2) * 0.25;
+  });
   return (
-    <mesh position={[0, cat.height / 2, 0]} castShadow receiveShadow>
+    <mesh position={[0, cat.height / 2, 0]} castShadow={!loading} receiveShadow>
       <boxGeometry args={[cat.width, cat.height, cat.depth]} />
-      <meshStandardMaterial color={cat.color} />
+      <meshStandardMaterial ref={matRef} color={cat.color} transparent={loading} opacity={loading ? 0.7 : 1} />
     </mesh>
   );
 }
