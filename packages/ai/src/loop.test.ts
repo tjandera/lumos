@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sceneDocumentSchema } from "@interior/core";
+import { SceneDocumentSchema } from "@interior/core";
 import { runTurn, type TurnEvent } from "./loop.js";
 import { MockProvider, resetMockProvider } from "./providers/mock.js";
 import type { ProviderEvent } from "./provider.js";
@@ -39,7 +39,7 @@ describe("runTurn with MockProvider", () => {
     if (!done || done.type !== "done") throw new Error("no done event");
     expect(done.document.furniture.length).toBeGreaterThan(0);
     // Resulting document passes core schema validation.
-    expect(sceneDocumentSchema.safeParse(done.document).success).toBe(true);
+    expect(SceneDocumentSchema.safeParse(done.document).success).toBe(true);
     // History includes a tool result message.
     expect(done.messages.some((m) => m.role === "tool")).toBe(true);
   });

@@ -43,7 +43,7 @@ export default function App() {
 
 function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; roomPhotoEnabled: boolean; mode: ViewMode }) {
   const setMode = useUiStore((s) => s.setMode);
-  const name = useSceneStore((s) => s.doc.name);
+  const name = useSceneStore((s) => s.doc.meta.name);
   const canUndo = useSceneStore((s) => s.canUndo);
   const canRedo = useSceneStore((s) => s.canRedo);
   const undo = useSceneStore((s) => s.undo);

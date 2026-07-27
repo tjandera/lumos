@@ -82,14 +82,16 @@ describe("documentWorldBounds", () => {
           id: "room-1",
           name: "R",
           walls: [
-            { x: 0, y: 0 },
-            { x: 4, y: 0 },
-            { x: 4, y: 3 },
-            { x: 0, y: 3 }
+              { id: "w0", start: { x: 0, z: 0 }, end: { x: 4, z: 0 }, thickness: 0.15, height: 2.5 },
+              { id: "w1", start: { x: 4, z: 0 }, end: { x: 4, z: 3 }, thickness: 0.15, height: 2.5 },
+              { id: "w2", start: { x: 4, z: 3 }, end: { x: 0, z: 3 }, thickness: 0.15, height: 2.5 },
+              { id: "w3", start: { x: 0, z: 3 }, end: { x: 0, z: 0 }, thickness: 0.15, height: 2.5 }
           ],
-          wallThickness: 0.15,
-          height: 2.5,
-          openings: []
+            materials: {
+              wall: { color: "#efeae2", finish: "matte" },
+              floor: { color: "#d9d2c7", finish: "matte" },
+              ceiling: { color: "#f5f2ea", finish: "matte" }
+            }
         }
       ]
     };

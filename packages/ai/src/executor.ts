@@ -16,16 +16,13 @@
 
 import {
   addFurniture,
-  getLampForFurniture,
-  createLampLight,
-  addLampLight,
+  FIXTURE_MOUNT_HEIGHT,
+  type FurnitureInstance,
+  type LightInstance,
   moveFurniture,
   polygonAbsArea,
   removeFurniture,
-  removeLampLightsForFurniture,
-  setLampOn,
-  setSunLight,
-  type FurnitureItem,
+  roomCorners,
   type Room,
   type SceneDocument
 } from "@interior/core";
@@ -75,12 +72,13 @@ function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-function placedToFurniture(p: SolveResult["placed"][number]): FurnitureItem {
+function placedToFurniture(p: SolveResult["placed"][number]): FurnitureInstance {
   return {
     id: p.itemId,
     catalogId: p.catalogId,
     position: p.position,
     rotationY: p.rotationY,
+    scale: 1,
     dimensions: p.dimensions
   };
 }
@@ -188,7 +186,7 @@ function moveItem(document: SceneDocument, args: Args<"moveItem">, context: Exec
   // Pure in-place rotation (no positional constraint): validate, don't reposition.
   if (c.rotateDeg !== undefined && !hasPositional) {
     const rotationY = existing.rotationY + (c.rotateDeg * Math.PI) / 180;
-    const candidate: FurnitureItem = { ...existing, rotationY };
+    const candidate: FurnitureInstance = { ...existing, rotationY };
     const enforceFront = category ? needsFront(category) : false;
     if (!isPlacementValid(document, room, candidate, { excludeId: existing.id, enforceFront })) {
       return unchanged(document, {
@@ -207,10 +205,19 @@ function moveItem(document: SceneDocument, args: Args<"moveItem">, context: Exec
   }
 
   // Otherwise run the solver with the given constraints (towardWall -> nearWall).
+  const dimensions = existing.dimensions ?? catalogItem?.dimensions;
+  if (!dimensions) {
+    return unchanged(document, {
+      ok: false,
+      error: "missing_dimensions",
+      itemId: existing.id,
+      message: "Cannot move this item because its dimensions are unknown."
+    });
+  }
   const request: PlacementRequest = {
     catalogId: existing.catalogId,
     itemId: existing.id,
-    dimensions: existing.dimensions,
+    dimensions,
     category,
     constraints: { ...c, nearWall: c.nearWall || c.towardWall },
     isExisting: true
@@ -233,16 +240,26 @@ function removeItem(document: SceneDocument, args: Args<"removeItem">): ToolResu
   if (!exists) {
     return unchanged(document, { ok: false, error: "item_not_found", itemId: args.itemId });
   }
-  const withoutLamps = removeLampLightsForFurniture(document, args.itemId);
-  const next = removeFurniture(withoutLamps, args.itemId);
+  const next = removeFurniture(
+    {
+      ...document,
+      lights: document.lights.filter((light) => light.furnitureItemId !== args.itemId)
+    },
+    args.itemId
+  );
   return { document: next, changed: true, resultForLLM: { ok: true, removed: args.itemId } };
 }
 
 function setTimeOfDay(document: SceneDocument, args: Args<"setTimeOfDay">): ToolResult {
-  const updates: { time: string; date?: string } = { time: args.time };
-  if (args.date) updates.date = args.date;
-  const next = setSunLight(document, updates);
-  return { document: next, changed: true, resultForLLM: { ok: true, time: args.time, date: args.date ?? null } };
+  const date = args.date ?? document.view.timeOfDay.slice(0, 10);
+  const next: SceneDocument = {
+    ...document,
+    view: {
+      ...document.view,
+      timeOfDay: `${date}T${args.time}:00`
+    }
+  };
+  return { document: next, changed: true, resultForLLM: { ok: true, time: args.time, date } };
 }
 
 function toggleLamp(document: SceneDocument, args: Args<"toggleLamp">, generateId: () => string): ToolResult {
@@ -250,13 +267,27 @@ function toggleLamp(document: SceneDocument, args: Args<"toggleLamp">, generateI
   if (!item) {
     return unchanged(document, { ok: false, error: "item_not_found", itemId: args.itemId });
   }
-  const existingLamp = getLampForFurniture(document, args.itemId);
+  const existingLamp = document.lights.find((light) => light.furnitureItemId === args.itemId);
   if (existingLamp) {
-    const next = setLampOn(document, existingLamp.id, args.on);
+    const next: SceneDocument = {
+      ...document,
+      lights: document.lights.map((light) => (light.id === existingLamp.id ? { ...light, on: args.on } : light))
+    };
     return { document: next, changed: true, resultForLLM: { ok: true, itemId: args.itemId, on: args.on } };
   }
-  const lamp = createLampLight(generateId(), args.itemId, { on: args.on });
-  const next = addLampLight(document, lamp);
+  const lamp: LightInstance = {
+    id: generateId(),
+    kind: "table",
+    position: { x: item.position.x, y: FIXTURE_MOUNT_HEIGHT.table, z: item.position.z },
+    intensityCandela: 200,
+    color: "#ffe6b0",
+    kelvin: 2700,
+    on: args.on,
+    castShadow: true,
+    auto: false,
+    furnitureItemId: args.itemId
+  };
+  const next: SceneDocument = { ...document, lights: [...document.lights, lamp] };
   return { document: next, changed: true, resultForLLM: { ok: true, itemId: args.itemId, on: args.on, created: true } };
 }
 
@@ -265,12 +296,20 @@ function querySpace(document: SceneDocument, context: ExecuteContext): ToolResul
   if (!room) {
     return unchanged(document, { ok: true, room: null, note: "No room has been drawn yet." });
   }
-  const floorArea = polygonAbsArea(room.walls);
-  const footprintArea = document.furniture.reduce((sum, f) => sum + f.dimensions.w * f.dimensions.d, 0);
-  const xs = room.walls.map((w) => w.x);
-  const ys = room.walls.map((w) => w.y);
+  const outline = roomCorners(room);
+  const floorArea = polygonAbsArea(outline);
+  const footprintArea = document.furniture.reduce((sum, f) => {
+    const dims = f.dimensions;
+    return dims ? sum + dims.w * dims.d : sum;
+  }, 0);
+  const xs = outline.map((p) => p.x);
+  const ys = outline.map((p) => p.z);
   const width = Math.max(...xs) - Math.min(...xs);
   const depth = Math.max(...ys) - Math.min(...ys);
+  const ceilingHeight = room.walls.length > 0 ? Math.max(...room.walls.map((w) => w.height)) : 0;
+  const openings = document.openings
+    .filter((opening) => room.walls.some((wall) => wall.id === opening.wallId))
+    .map((opening) => ({ id: opening.id, kind: opening.kind, width: opening.width }));
 
   return unchanged(document, {
     ok: true,
@@ -280,15 +319,15 @@ function querySpace(document: SceneDocument, context: ExecuteContext): ToolResul
       boundingSize: { width: round(width), depth: round(depth) },
       floorAreaM2: round(floorArea),
       approxFreeFloorAreaM2: round(Math.max(0, floorArea - footprintArea)),
-      ceilingHeight: room.height,
-      openings: room.openings.map((o) => ({ id: o.id, type: o.type, width: o.width }))
+      ceilingHeight,
+      openings
     },
     items: document.furniture.map((f) => ({
       itemId: f.id,
       catalogId: f.catalogId,
       position: { x: round(f.position.x), z: round(f.position.z) },
       rotationDeg: round((f.rotationY * 180) / Math.PI),
-      footprint: { w: f.dimensions.w, d: f.dimensions.d }
+      footprint: f.dimensions ? { w: f.dimensions.w, d: f.dimensions.d } : null
     }))
   });
 }

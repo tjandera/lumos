@@ -17,7 +17,7 @@ import {
   type Material,
 } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM, type CatalogItem } from '@interior/catalog';
-import { computeWallShape, buildWallGeometry } from './wallGeometry';
+import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
 
 /**
  * Renders a SceneDocument as 3D. Walls are extruded from their elevation profile with
@@ -318,7 +318,7 @@ function FurnitureModel({ url, targetWidth }: { url: string; targetWidth: number
   const { scene } = useGLTF(url);
   const object = useMemo(() => {
     const cloned = scene.clone(true);
-    cloned.traverse((o) => {
+    cloned.traverse((o: THREE.Object3D) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
@@ -392,7 +392,7 @@ function FixtureModel({ kind, color, lit }: { kind: FixtureKind; color: string; 
     const center = box.getCenter(new THREE.Vector3());
     const target = FIXTURE_SIZE[kind];
     const s = size.x > 1e-4 ? target / size.x : 1;
-    cloned.traverse((o) => {
+    cloned.traverse((o: THREE.Object3D) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;

@@ -2,7 +2,7 @@
  * Shared fixtures for the AI package tests. Not exported from the public index.
  */
 
-import { createEmptyDocument, type Room, type SceneDocument } from "@interior/core";
+import { createEmptyDocument, type Opening, type Room, type SceneDocument } from "@interior/core";
 import type { CatalogItem } from "./catalog.js";
 
 /** A rectangular 5m x 4m room with one window and one door. */
@@ -11,25 +11,55 @@ export function rectRoom(overrides: Partial<Room> = {}): Room {
     id: "room-1",
     name: "Living Room",
     walls: [
-      { x: 0, y: 0 },
-      { x: 5, y: 0 },
-      { x: 5, y: 4 },
-      { x: 0, y: 4 }
+      { id: "room-1-w0", start: { x: 0, z: 0 }, end: { x: 5, z: 0 }, thickness: 0.1, height: 2.5 },
+      { id: "room-1-w1", start: { x: 5, z: 0 }, end: { x: 5, z: 4 }, thickness: 0.1, height: 2.5 },
+      { id: "room-1-w2", start: { x: 5, z: 4 }, end: { x: 0, z: 4 }, thickness: 0.1, height: 2.5 },
+      { id: "room-1-w3", start: { x: 0, z: 4 }, end: { x: 0, z: 0 }, thickness: 0.1, height: 2.5 }
     ],
-    wallThickness: 0.1,
-    height: 2.5,
-    openings: [
-      { id: "win-1", type: "window", wallIndex: 2, position: 2.5, width: 1.4, height: 1.2, sillHeight: 0.9 },
-      { id: "door-1", type: "door", wallIndex: 0, position: 1.0, width: 0.9, height: 2.0, sillHeight: 0 }
-    ],
+    materials: {
+      wall: { color: "#efeae2", finish: "matte" },
+      floor: { color: "#d9d2c7", finish: "matte" },
+      ceiling: { color: "#f5f2ea", finish: "matte" }
+    },
     ...overrides
   };
+}
+
+function rectOpenings(room: Room): Opening[] {
+  const wallMap = new Map(room.walls.map((wall) => [wall.id, wall] as const));
+  const windowWall = wallMap.get("room-1-w2");
+  const doorWall = wallMap.get("room-1-w0");
+  if (!windowWall || !doorWall) return [];
+  return [
+    {
+      id: "win-1",
+      wallId: windowWall.id,
+      kind: "window",
+      offset: 1.8,
+      width: 1.4,
+      height: 1.2,
+      sillHeight: 0.9,
+      glassTint: 0.06,
+      covering: { type: "none", state: "open" }
+    },
+    {
+      id: "door-1",
+      wallId: doorWall.id,
+      kind: "door",
+      offset: 1.0,
+      width: 0.9,
+      height: 2.0,
+      sillHeight: 0,
+      glassTint: 0.06,
+      covering: { type: "none", state: "open" }
+    }
+  ];
 }
 
 /** A document containing a single rectangular room and no furniture. */
 export function docWithRoom(room: Room = rectRoom()): SceneDocument {
   const doc = createEmptyDocument("Test", "doc-1");
-  return { ...doc, rooms: [room] };
+  return { ...doc, rooms: [room], openings: rectOpenings(room) };
 }
 
 /** A small deterministic catalog covering the categories the solver cares about. */

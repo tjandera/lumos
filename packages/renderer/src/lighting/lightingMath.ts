@@ -8,7 +8,7 @@
  */
 
 import * as THREE from "three";
-import type { SceneDocument, Vector3 } from "@interior/core";
+import { roomCorners, type SceneDocument, type Vec3 as Vector3 } from "@interior/core";
 
 const DEG = Math.PI / 180;
 
@@ -118,25 +118,27 @@ export function documentWorldBounds(document: SceneDocument): Bounds3 | null {
   let seen = false;
 
   for (const room of document.rooms) {
-    for (const p of room.walls) {
+    for (const p of roomCorners(room)) {
       seen = true;
       minX = Math.min(minX, p.x);
       maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.y);
-      maxZ = Math.max(maxZ, p.y);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
     }
-    maxY = Math.max(maxY, room.height);
+    maxY = Math.max(maxY, ...room.walls.map((wall) => wall.height));
   }
 
   for (const item of document.furniture) {
     seen = true;
-    const hx = item.dimensions.w / 2;
-    const hz = item.dimensions.d / 2;
+    const dims = item.dimensions;
+    if (!dims) continue;
+    const hx = dims.w / 2;
+    const hz = dims.d / 2;
     minX = Math.min(minX, item.position.x - hx);
     maxX = Math.max(maxX, item.position.x + hx);
     minZ = Math.min(minZ, item.position.z - hz);
     maxZ = Math.max(maxZ, item.position.z + hz);
-    maxY = Math.max(maxY, item.dimensions.h);
+    maxY = Math.max(maxY, dims.h);
   }
 
   if (!seen) return null;

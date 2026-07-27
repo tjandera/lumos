@@ -17,9 +17,9 @@ import { useThree } from "@react-three/fiber";
 import { EffectComposer, N8AO, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useEffect, useMemo, useRef } from "react";
+import type { JSX } from "react";
 import * as THREE from "three";
-import type { LampLightConfig, SceneDocument } from "@interior/core";
-import { createSunLight, getLampLights, getSunLight, sunDirection } from "@interior/core";
+import { sunVector, type LightInstance, type SceneDocument } from "@interior/core";
 import { createSkyEnvironment } from "./environment.js";
 import {
   documentWorldBounds,
@@ -142,7 +142,7 @@ function SunLight({ toSun, elevation, bounds, castShadow, shadowMapSize }: SunLi
 
 interface LampLightsProps {
   document: SceneDocument;
-  lamps: LampLightConfig[];
+  lamps: LightInstance[];
   castShadow: boolean;
   shadowMapSize: number;
 }
@@ -155,13 +155,13 @@ function LampLights({ document, lamps, castShadow, shadowMapSize }: LampLightsPr
         const item = document.furniture.find((f) => f.id === lamp.furnitureItemId);
         if (!item) return null;
         // Emit from near the top of the lamp (inside the shade).
-        const y = Math.max(0.2, item.dimensions.h * 0.85);
+        const y = Math.max(0.2, (item.dimensions?.h ?? 1) * 0.85);
         return (
           <pointLight
             key={lamp.id}
             position={[item.position.x, y, item.position.z]}
             color={lamp.color}
-            intensity={lamp.intensity}
+            intensity={lamp.intensityCandela}
             distance={8}
             decay={2}
             castShadow={castShadow}
@@ -184,13 +184,15 @@ export function LightingRig({ document, quality = "medium" }: LightingRigProps):
   useRendererSetup();
 
   const settings = qualitySettings(quality);
-  const sunConfig = getSunLight(document) ?? createSunLight();
-  const sun = useMemo(() => sunDirection(sunConfig), [sunConfig]);
-  const sky = useMemo(() => skyColors(sun.elevation), [sun.elevation]);
+  const sun = useMemo(
+    () => sunVector(document.site.lat, document.site.lng, new Date(document.view.timeOfDay), document.site.trueNorthOffsetDeg),
+    [document.site.lat, document.site.lng, document.site.trueNorthOffsetDeg, document.view.timeOfDay]
+  );
+  const sky = useMemo(() => skyColors(sun.altitude), [sun.altitude]);
   const bounds = useMemo(() => documentWorldBounds(document) ?? DEFAULT_BOUNDS, [document]);
-  const lamps = getLampLights(document);
+  const lamps = document.lights;
 
-  useSkyEnvironment(sun.elevation);
+  useSkyEnvironment(sun.altitude);
 
   return (
     <group name="lighting-rig">
@@ -200,8 +202,8 @@ export function LightingRig({ document, quality = "medium" }: LightingRigProps):
         intensity={sky.hemiIntensity}
       />
       <SunLight
-        toSun={sun.toSun}
-        elevation={sun.elevation}
+        toSun={sun}
+        elevation={sun.altitude}
         bounds={bounds}
         castShadow={settings.sunShadows}
         shadowMapSize={settings.shadowMapSize}

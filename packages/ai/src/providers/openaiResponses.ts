@@ -3,8 +3,7 @@ import type {
   ChatProvider,
   ChatRequest,
   ProviderEvent,
-  ToolCall,
-  ToolDefinition
+  ToolCall
 } from "../provider.js";
 import { iterateSSE } from "./openai.js";
 

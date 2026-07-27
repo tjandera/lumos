@@ -27,7 +27,7 @@
 
 import * as THREE from "three";
 import type { Opening, Room } from "@interior/core";
-import { deriveWallSegments, openingSpan, polygonArea, type WallSegment } from "@interior/core";
+import { openingSpan, polygonArea, roomCorners, wallSegments, type WallSegment } from "@interior/core";
 
 const EPS = 1e-6;
 
@@ -35,7 +35,7 @@ const EPS = 1e-6;
  *  wall from its start, v upward from the floor). */
 export interface LocalOpeningRect {
   id: string;
-  type: Opening["type"];
+  kind: Opening["kind"];
   /** left edge distance along the wall */
   u0: number;
   /** right edge distance along the wall */
@@ -48,18 +48,18 @@ export interface LocalOpeningRect {
 
 /**
  * Project a room's openings for a single wall into that wall's local face
- * frame, clamped to the wall extent. Only openings whose `wallIndex` matches
+ * frame, clamped to the wall extent. Only openings whose `wallId` matches
  * and that have positive width are returned.
  */
 export function localOpeningRects(
   openings: Opening[],
-  wallIndex: number,
+  wallId: string,
   wallLength: number,
   wallHeight: number
 ): LocalOpeningRect[] {
   const rects: LocalOpeningRect[] = [];
   for (const opening of openings) {
-    if (opening.wallIndex !== wallIndex) continue;
+    if (opening.wallId !== wallId) continue;
     if (opening.width <= 0 || opening.height <= 0) continue;
     const span = openingSpan(opening);
     const u0 = Math.max(0, Math.min(wallLength, span.start));
@@ -68,7 +68,7 @@ export function localOpeningRects(
     const v0 = Math.max(0, opening.sillHeight);
     const v1 = Math.min(wallHeight, opening.sillHeight + opening.height);
     if (v1 - v0 <= EPS) continue;
-    rects.push({ id: opening.id, type: opening.type, u0, u1, v0, v1 });
+    rects.push({ id: opening.id, kind: opening.kind, u0, u1, v0, v1 });
   }
   return rects;
 }
@@ -125,12 +125,12 @@ export function buildWallShape(
  * thickness along the normal.
  */
 function wallLocalToWorld(segment: WallSegment): THREE.Matrix4 {
-  const u = new THREE.Vector3(segment.dir.x, 0, segment.dir.y);
+  const u = new THREE.Vector3(segment.dir.x, 0, segment.dir.z);
   const up = new THREE.Vector3(0, 1, 0);
   // Right-handed: w = u x up.
   const w = new THREE.Vector3().crossVectors(u, up).normalize();
   const basis = new THREE.Matrix4().makeBasis(u, up, w);
-  const origin = new THREE.Vector3(segment.start.x, 0, segment.start.y);
+  const origin = new THREE.Vector3(segment.wall.start.x, 0, segment.wall.start.z);
   return new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z).multiply(basis);
 }
 
@@ -146,7 +146,7 @@ export function buildWallGeometry(
   thickness: number,
   openings: Opening[]
 ): THREE.BufferGeometry {
-  const rects = localOpeningRects(openings, segment.index, segment.length, height);
+  const rects = localOpeningRects(openings, segment.wall.id, segment.length, height);
   const shape = buildWallShape(segment.length, height, rects);
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: thickness,
@@ -162,9 +162,9 @@ export function buildWallGeometry(
 }
 
 /** Build one wall geometry per room wall segment. */
-export function buildRoomWallGeometries(room: Room): THREE.BufferGeometry[] {
-  return deriveWallSegments(room.walls).map((segment) =>
-    buildWallGeometry(segment, room.height, room.wallThickness, room.openings)
+export function buildRoomWallGeometries(room: Room, openings: Opening[] = []): THREE.BufferGeometry[] {
+  return wallSegments(room).map((segment) =>
+    buildWallGeometry(segment, segment.wall.height, segment.wall.thickness, openings)
   );
 }
 
@@ -175,11 +175,11 @@ export function buildRoomWallGeometries(room: Room): THREE.BufferGeometry[] {
  * the front face points up regardless of the input polygon's winding.
  */
 export function buildFloorGeometry(room: Room): THREE.BufferGeometry {
-  const pts = room.walls;
+  const pts = roomCorners(room);
   const geometry = new THREE.BufferGeometry();
   if (pts.length < 3) return geometry;
 
-  const contour = pts.map((p) => new THREE.Vector2(p.x, p.y));
+  const contour = pts.map((p) => new THREE.Vector2(p.x, p.z));
   const faces = THREE.ShapeUtils.triangulateShape(contour, []);
 
   const positions: number[] = [];
@@ -194,9 +194,9 @@ export function buildFloorGeometry(room: Room): THREE.BufferGeometry {
     const [a, b, c] = flip ? [face[2]!, face[1]!, face[0]!] : [face[0]!, face[1]!, face[2]!];
     for (const idx of [a, b, c]) {
       const p = pts[idx]!;
-      positions.push(p.x, 0, p.y);
+      positions.push(p.x, 0, p.z);
       normals.push(0, 1, 0);
-      uvs.push(p.x, p.y);
+      uvs.push(p.x, p.z);
     }
   }
 
@@ -214,9 +214,9 @@ export interface RoomGeometries {
   floor: THREE.BufferGeometry;
 }
 
-export function buildRoomGeometries(room: Room): RoomGeometries {
+export function buildRoomGeometries(room: Room, openings: Opening[] = []): RoomGeometries {
   return {
-    walls: buildRoomWallGeometries(room),
+    walls: buildRoomWallGeometries(room, openings),
     floor: buildFloorGeometry(room)
   };
 }

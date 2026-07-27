@@ -22,14 +22,17 @@
 import {
   aabbIntersects,
   furnitureAABB,
-  deriveWallSegments,
   polygonCentroid,
+  pointAlongWall,
+  roomCorners,
+  wallSegments,
   type AABB,
-  type FurnitureItem,
+  type FurnitureInstance as FurnitureItem,
   type Dimensions3D,
+  type Opening,
   type Room,
   type SceneDocument,
-  type Vector3
+  type Vec3
 } from "@interior/core";
 import { needsFrontClearance } from "./catalog.js";
 
@@ -76,7 +79,7 @@ export interface PlacementRequest {
 export interface SolvedPlacement {
   itemId: string;
   catalogId: string;
-  position: Vector3;
+  position: Vec3;
   rotationY: number;
   dimensions: Dimensions3D;
 }
@@ -119,7 +122,7 @@ interface Candidate {
 
 /** Room wall polyline as XZ points (plan-Y maps to world-Z). */
 function roomPolygon(room: Room): Vec2[] {
-  return room.walls.map((w) => ({ x: w.x, z: w.y }));
+  return roomCorners(room).map((p) => ({ x: p.x, z: p.z }));
 }
 
 /** Standard even-odd ray-cast point-in-polygon test. */
@@ -197,6 +200,7 @@ function asItem(center: Vec2, dims: Dimensions3D, rotationY: number): FurnitureI
     catalogId: "__probe__",
     position: { x: center.x, y: 0, z: center.z },
     rotationY,
+    scale: 1,
     dimensions: dims
   };
 }
@@ -221,24 +225,25 @@ interface WallInfo {
 }
 
 function wallInfos(room: Room, poly: Vec2[]): WallInfo[] {
-  const segments = deriveWallSegments(room.walls);
+  const segments = wallSegments(room);
   return segments
-    .filter((s) => s.length > 1e-6)
-    .map((s) => {
-      const start = { x: s.start.x, z: s.start.y };
-      const end = { x: s.end.x, z: s.end.y };
-      const dir = { x: s.dir.x, z: s.dir.y };
+    .map((s, index) => ({ segment: s, index }))
+    .filter(({ segment }) => segment.length > 1e-6)
+    .map(({ segment: s, index }) => {
+      const start = { x: s.wall.start.x, z: s.wall.start.z };
+      const end = { x: s.wall.end.x, z: s.wall.end.z };
+      const dir = { x: s.dir.x, z: s.dir.z };
       // s.normal is 90deg clockwise from dir; pick the inward-pointing sign by
       // probing just off the wall midpoint.
       let nx = s.normal.x;
-      let nz = s.normal.y;
+      let nz = s.normal.z;
       const mid = { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 };
       const probe = { x: mid.x + nx * 0.05, z: mid.z + nz * 0.05 };
       if (!pointInPolygon(poly, probe)) {
         nx = -nx;
         nz = -nz;
       }
-      return { index: s.index, start, end, length: s.length, dir, inwardNormal: { x: nx, z: nz } };
+      return { index, start, end, length: s.length, dir, inwardNormal: { x: nx, z: nz } };
     });
 }
 
@@ -249,7 +254,6 @@ function wallInfos(room: Room, poly: Vec2[]): WallInfo[] {
  * filtering happens later.
  */
 function generateCandidates(
-  room: Room,
   poly: Vec2[],
   walls: WallInfo[],
   dims: Dimensions3D,
@@ -267,7 +271,7 @@ function generateCandidates(
     const rotationY = facingRotation(wall.inwardNormal);
     // Offset from the wall centerline to the item center: half wall thickness
     // (to reach the inner face) + item half-depth + gap.
-    const offset = room.wallThickness / 2 + hd + WALL_GAP;
+    const offset = wallMargin + hd;
     const usable = wall.length - 2 * (hw + WALL_GAP);
     if (usable < 0) continue;
     const steps = Math.max(1, Math.ceil(usable / WALL_STEP));
@@ -365,17 +369,14 @@ function nearestVertexDist(poly: Vec2[], p: Vec2): number {
   return min;
 }
 
-function windowCenters(room: Room): Vec2[] {
-  const segments = deriveWallSegments(room.walls);
+function windowCenters(room: Room, openings: Opening[]): Vec2[] {
+  const segments = wallSegments(room);
   const centers: Vec2[] = [];
-  for (const opening of room.openings) {
-    if (opening.type !== "window") continue;
-    const seg = segments[opening.wallIndex];
+  for (const opening of openings) {
+    if (opening.kind !== "window") continue;
+    const seg = segments.find((segment) => segment.wall.id === opening.wallId);
     if (!seg) continue;
-    centers.push({
-      x: seg.start.x + seg.dir.x * opening.position,
-      z: seg.start.y + seg.dir.y * opening.position
-    });
+    centers.push(pointAlongWall(seg.wall, opening.offset + opening.width / 2));
   }
   return centers;
 }
@@ -391,7 +392,7 @@ interface ScoreContext {
 }
 
 /** Higher is better. Purely soft — every scored candidate is already valid. */
-function scoreCandidate(candidate: Candidate, dims: Dimensions3D, ctx: ScoreContext): number {
+function scoreCandidate(candidate: Candidate, ctx: ScoreContext): number {
   const { center, rotationY } = candidate;
   const { constraints } = ctx;
   let score = 0;
@@ -480,10 +481,11 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
 
   const poly = roomPolygon(room);
   const walls = wallInfos(room, poly);
-  const centroid2 = polygonCentroid(room.walls);
-  const centroid: Vec2 = { x: centroid2.x, z: centroid2.y };
-  const windows = windowCenters(room);
-  const wallMargin = room.wallThickness / 2 + WALL_GAP;
+  const centroid2 = polygonCentroid(roomCorners(room));
+  const centroid: Vec2 = { x: centroid2.x, z: centroid2.z };
+  const openings = document.openings.filter((opening) => room.walls.some((wall) => wall.id === opening.wallId));
+  const windows = windowCenters(room, openings);
+  const wallMargin = roomWallMargin(room);
 
   let minX = Infinity;
   let maxX = -Infinity;
@@ -498,7 +500,7 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
   const bboxDiagonal = Math.max(1e-6, Math.hypot(maxX - minX, maxZ - minZ));
 
   // Door swing zones stay clear for every placement in this batch.
-  const doorZones = doorSwingZones(room, walls);
+  const doorZones = doorSwingZones(room, openings, walls);
 
   const placedItems: FurnitureItem[] = [];
 
@@ -519,7 +521,7 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
     for (const item of placedItems) obstacles.push({ aabb: furnitureAABB(item) });
     for (const zone of doorZones) obstacles.push({ aabb: zone });
 
-    const candidates = generateCandidates(room, poly, walls, req.dimensions, req.constraints, facingTarget, wallMargin);
+    const candidates = generateCandidates(poly, walls, req.dimensions, req.constraints, facingTarget, wallMargin);
 
     const scoreCtx: ScoreContext = {
       poly,
@@ -546,14 +548,14 @@ export function solve(document: SceneDocument, room: Room | undefined, requests:
         const zone = frontClearanceZone(candidate.center, req.dimensions, candidate.rotationY, clearance);
         const zoneCorners = footprintCorners(
           { x: zone.position.x, z: zone.position.z },
-          zone.dimensions,
+          zone.dimensions!,
           zone.rotationY
         );
         if (!insideRoom(poly, zoneCorners, wallMargin)) continue;
         if (collides(furnitureAABB(zone), obstacles)) continue;
       }
 
-      const score = scoreCandidate(candidate, req.dimensions, scoreCtx);
+      const score = scoreCandidate(candidate, scoreCtx);
       if (
         !best ||
         score > best.score + 1e-9 ||
@@ -615,10 +617,10 @@ export function isPlacementValid(
   if (!room) return false;
   const poly = roomPolygon(room);
   const walls = wallInfos(room, poly);
-  const wallMargin = room.wallThickness / 2 + WALL_GAP;
+  const wallMargin = roomWallMargin(room);
   const center: Vec2 = { x: item.position.x, z: item.position.z };
 
-  const corners = footprintCorners(center, item.dimensions, item.rotationY);
+  const corners = footprintCorners(center, item.dimensions!, item.rotationY);
   if (!insideRoom(poly, corners, wallMargin)) return false;
 
   const obstacles: Obstacle[] = [];
@@ -626,17 +628,18 @@ export function isPlacementValid(
     if (other.id === item.id || other.id === options.excludeId) continue;
     obstacles.push({ aabb: furnitureAABB(other) });
   }
-  for (const zone of doorSwingZones(room, walls)) obstacles.push({ aabb: zone });
+  const openings = document.openings.filter((opening) => room.walls.some((wall) => wall.id === opening.wallId));
+  for (const zone of doorSwingZones(room, openings, walls)) obstacles.push({ aabb: zone });
 
-  const aabb = furnitureAABB(asItem(center, item.dimensions, item.rotationY));
+  const aabb = furnitureAABB(asItem(center, item.dimensions!, item.rotationY));
   if (collides(aabb, obstacles)) return false;
 
   if (options.enforceFront) {
     const clearance = options.clearance ?? DEFAULT_CLEARANCE;
-    const zone = frontClearanceZone(center, item.dimensions, item.rotationY, clearance);
+    const zone = frontClearanceZone(center, item.dimensions!, item.rotationY, clearance);
     const zoneCorners = footprintCorners(
       { x: zone.position.x, z: zone.position.z },
-      zone.dimensions,
+      zone.dimensions!,
       zone.rotationY
     );
     if (!insideRoom(poly, zoneCorners, wallMargin)) return false;
@@ -647,19 +650,16 @@ export function isPlacementValid(
 }
 
 /** Door swing zones (a square in front of each door), as AABBs to avoid. */
-function doorSwingZones(room: Room, walls: WallInfo[]): AABB[] {
-  const segments = deriveWallSegments(room.walls);
+function doorSwingZones(room: Room, openings: Opening[], walls: WallInfo[]): AABB[] {
+  const segments = wallSegments(room);
   const zones: AABB[] = [];
-  for (const opening of room.openings) {
-    if (opening.type !== "door") continue;
-    const seg = segments[opening.wallIndex];
+  for (const opening of openings) {
+    if (opening.kind !== "door") continue;
+    const seg = segments.find((segment) => segment.wall.id === opening.wallId);
     if (!seg) continue;
-    const wall = walls.find((w) => w.index === opening.wallIndex);
+    const wall = walls.find((w) => w.index === segments.indexOf(seg));
     if (!wall) continue;
-    const doorCenter = {
-      x: seg.start.x + seg.dir.x * opening.position,
-      z: seg.start.y + seg.dir.y * opening.position
-    };
+    const doorCenter = pointAlongWall(seg.wall, opening.offset + opening.width / 2);
     const swing = opening.width;
     const zoneCenter = {
       x: doorCenter.x + wall.inwardNormal.x * (swing / 2),
@@ -671,11 +671,17 @@ function doorSwingZones(room: Room, walls: WallInfo[]): AABB[] {
         catalogId: "__door__",
         position: { x: zoneCenter.x, y: 0, z: zoneCenter.z },
         rotationY: 0,
+        scale: 1,
         dimensions: { w: swing, d: swing, h: 1 }
       })
     );
   }
   return zones;
+}
+
+function roomWallMargin(room: Room): number {
+  const thickness = room.walls.length > 0 ? Math.max(...room.walls.map((wall) => wall.thickness)) : 0.12;
+  return thickness / 2 + WALL_GAP;
 }
 
 function itemFitsRoomBounds(poly: Vec2[], dims: Dimensions3D, wallMargin: number): boolean {

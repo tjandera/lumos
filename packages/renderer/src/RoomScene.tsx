@@ -7,6 +7,7 @@
 // Importing the react-three-fiber types augments the global JSX namespace with
 // the three.js intrinsic elements (<mesh>, <group>, <meshStandardMaterial>, ...).
 import type {} from "@react-three/fiber";
+import type { JSX } from "react";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import type { Room, SceneDocument } from "@interior/core";
@@ -22,12 +23,13 @@ export interface RoomSceneProps {
 
 interface RoomMeshesProps {
   room: Room;
+  openings: SceneDocument["openings"];
   wallColor: string;
   floorColor: string;
 }
 
-function RoomMeshes({ room, wallColor, floorColor }: RoomMeshesProps): JSX.Element {
-  const { walls, floor } = useMemo(() => buildRoomGeometries(room), [room]);
+function RoomMeshes({ room, openings, wallColor, floorColor }: RoomMeshesProps): JSX.Element {
+  const { walls, floor } = useMemo(() => buildRoomGeometries(room, openings), [room, openings]);
 
   // Dispose GPU resources when geometry is rebuilt or the room unmounts.
   useEffect(() => {
@@ -68,7 +70,13 @@ export function RoomScene({
   return (
     <group name="room-scene">
       {document.rooms.map((room) => (
-        <RoomMeshes key={room.id} room={room} wallColor={wallColor} floorColor={floorColor} />
+        <RoomMeshes
+          key={room.id}
+          room={room}
+          openings={document.openings.filter((opening) => room.walls.some((wall) => wall.id === opening.wallId))}
+          wallColor={wallColor}
+          floorColor={floorColor}
+        />
       ))}
     </group>
   );

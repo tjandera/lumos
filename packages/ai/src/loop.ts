@@ -14,6 +14,7 @@
  */
 
 import type { SceneDocument } from "@interior/core";
+import { roomCorners } from "@interior/core";
 import type { CatalogItem } from "./catalog.js";
 import { executeTool, type ExecuteContext } from "./executor.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -47,8 +48,9 @@ export interface RunTurnOptions {
 function roomSummary(document: SceneDocument, roomId?: string): string | undefined {
   const room = roomId ? document.rooms.find((r) => r.id === roomId) : document.rooms[0];
   if (!room) return undefined;
-  const xs = room.walls.map((w) => w.x);
-  const ys = room.walls.map((w) => w.y);
+  const corners = roomCorners(room);
+  const xs = corners.map((p) => p.x);
+  const ys = corners.map((p) => p.z);
   if (xs.length === 0) return `${room.name} (no walls yet)`;
   const width = (Math.max(...xs) - Math.min(...xs)).toFixed(1);
   const depth = (Math.max(...ys) - Math.min(...ys)).toFixed(1);

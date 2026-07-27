@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeWallShape } from './wallGeometry';
+import { computeWallShape } from './wallGeometry.js';
 import type { Wall, Opening } from '@interior/core';
 
 const wall: Wall = {
