@@ -8,7 +8,8 @@
  */
 
 import * as THREE from "three";
-import type { SceneDocument, Vector3 } from "@interior/core";
+import type { SceneDocument, Vec3 } from "@interior/core";
+import { getCatalogItem, DEFAULT_ITEM } from "@interior/catalog";
 
 const DEG = Math.PI / 180;
 
@@ -99,14 +100,16 @@ export function skyColors(elevation: number): SkyColors {
 }
 
 export interface Bounds3 {
-  min: Vector3;
-  max: Vector3;
+  min: Vec3;
+  max: Vec3;
 }
 
 /**
  * Axis-aligned world bounds of everything renderable in a document: room
- * footprints (plan-X -> world-X, plan-Y -> world-Z) up to each room's ceiling,
- * plus furniture footprints/heights. Returns `null` for an empty document.
+ * footprints (each wall's `start`/`end` on the X/Z plane) up to the tallest
+ * wall in the document, plus furniture footprints/heights (falling back to
+ * the catalog's dimensions when an item has no explicit override). Returns
+ * `null` for an empty document.
  */
 export function documentWorldBounds(document: SceneDocument): Bounds3 | null {
   let minX = Infinity;
@@ -118,25 +121,27 @@ export function documentWorldBounds(document: SceneDocument): Bounds3 | null {
   let seen = false;
 
   for (const room of document.rooms) {
-    for (const p of room.walls) {
+    for (const wall of room.walls) {
       seen = true;
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.y);
-      maxZ = Math.max(maxZ, p.y);
+      minX = Math.min(minX, wall.start.x, wall.end.x);
+      maxX = Math.max(maxX, wall.start.x, wall.end.x);
+      minZ = Math.min(minZ, wall.start.z, wall.end.z);
+      maxZ = Math.max(maxZ, wall.start.z, wall.end.z);
+      maxY = Math.max(maxY, wall.height);
     }
-    maxY = Math.max(maxY, room.height);
   }
 
   for (const item of document.furniture) {
     seen = true;
-    const hx = item.dimensions.w / 2;
-    const hz = item.dimensions.d / 2;
+    const cat = getCatalogItem(item.catalogId) ?? DEFAULT_ITEM;
+    const dims = item.dimensions ?? { w: cat.width, d: cat.depth, h: cat.height };
+    const hx = dims.w / 2;
+    const hz = dims.d / 2;
     minX = Math.min(minX, item.position.x - hx);
     maxX = Math.max(maxX, item.position.x + hx);
     minZ = Math.min(minZ, item.position.z - hz);
     maxZ = Math.max(maxZ, item.position.z + hz);
-    maxY = Math.max(maxY, item.dimensions.h);
+    maxY = Math.max(maxY, item.position.y + dims.h);
   }
 
   if (!seen) return null;
@@ -146,9 +151,9 @@ export function documentWorldBounds(document: SceneDocument): Bounds3 | null {
 
 export interface ShadowCameraFit {
   /** World position for the directional light. */
-  position: Vector3;
+  position: Vec3;
   /** World point the light looks at (bounds center). */
-  target: Vector3;
+  target: Vec3;
   near: number;
   far: number;
   /** Symmetric orthographic half-extent (used for left/right/top/bottom). */
@@ -161,8 +166,8 @@ export interface ShadowCameraFit {
  * `toSun` just past the bounding sphere so the whole room is inside a compact
  * orthographic frustum — no wasted shadow-map resolution, minimal acne.
  */
-export function fitSunShadowCamera(bounds: Bounds3, toSun: Vector3, margin = 0.5): ShadowCameraFit {
-  const center: Vector3 = {
+export function fitSunShadowCamera(bounds: Bounds3, toSun: Vec3, margin = 0.5): ShadowCameraFit {
+  const center: Vec3 = {
     x: (bounds.min.x + bounds.max.x) / 2,
     y: (bounds.min.y + bounds.max.y) / 2,
     z: (bounds.min.z + bounds.max.z) / 2
@@ -173,10 +178,10 @@ export function fitSunShadowCamera(bounds: Bounds3, toSun: Vector3, margin = 0.5
   const radius = 0.5 * Math.hypot(dx, dy, dz);
 
   const len = Math.hypot(toSun.x, toSun.y, toSun.z) || 1;
-  const dir: Vector3 = { x: toSun.x / len, y: toSun.y / len, z: toSun.z / len };
+  const dir: Vec3 = { x: toSun.x / len, y: toSun.y / len, z: toSun.z / len };
   const distance = radius + margin + radius; // pull back past the sphere
 
-  const position: Vector3 = {
+  const position: Vec3 = {
     x: center.x + dir.x * distance,
     y: center.y + dir.y * distance,
     z: center.z + dir.z * distance

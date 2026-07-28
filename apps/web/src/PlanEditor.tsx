@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { RotateCcw, RotateCw } from 'lucide-react';
 import type { SceneDocument, Wall, Opening, Covering, LightInstance } from '@interior/core';
 import { kelvinToRgb, rotateBuilding } from '@interior/core';
@@ -6,6 +6,7 @@ import { getCatalogItem, DEFAULT_ITEM } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
 import { FurnitureIcon } from './furnitureIcons';
+import { collidingFurnitureIds } from './collisionUi';
 
 const GRID = 0.1; // snap resolution (meters)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -54,6 +55,8 @@ export function PlanEditor() {
   const selectLight = useUiStore((s) => s.selectLight);
   const sel = useUiStore((s) => s.planSelection);
   const setSel = useUiStore((s) => s.setPlanSelection);
+
+  const collidingIds = useMemo(() => collidingFurnitureIds(doc), [doc]);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>('select');
@@ -542,6 +545,8 @@ export function PlanEditor() {
           const w = cat.width * f.scale;
           const d = cat.depth * f.scale;
           const selected = f.id === selectedFurnitureId;
+          const colliding = collidingIds.has(f.id);
+          const outline = colliding ? '#ef4444' : selected ? '#38bdf8' : '#20232b';
           return (
             <g
               key={f.id}
@@ -551,8 +556,11 @@ export function PlanEditor() {
             >
               {/* full-footprint hit area — the icon shape below doesn't always fill every corner */}
               <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="transparent" />
-              <FurnitureIcon catalogId={f.catalogId} w={w} d={d} fill={cat.color} stroke={selected ? '#38bdf8' : '#20232b'} />
-              {selected && (
+              <FurnitureIcon catalogId={f.catalogId} w={w} d={d} fill={cat.color} stroke={outline} />
+              {colliding && (
+                <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(w, d) * 0.08} fill="#ef4444" opacity={0.28} />
+              )}
+              {(selected || colliding) && (
                 <rect
                   x={-w / 2}
                   y={-d / 2}
@@ -560,7 +568,7 @@ export function PlanEditor() {
                   height={d}
                   rx={Math.min(w, d) * 0.08}
                   fill="none"
-                  stroke="#38bdf8"
+                  stroke={outline}
                   strokeWidth={0.045}
                 />
               )}
@@ -568,13 +576,27 @@ export function PlanEditor() {
                 x={0}
                 y={d / 2 + 0.16}
                 fontSize={0.16}
-                fill="#e5e7eb"
+                fill={colliding ? '#fca5a5' : '#e5e7eb'}
                 textAnchor="middle"
                 dominantBaseline="hanging"
                 pointerEvents="none"
               >
                 {cat.name}
+                {colliding ? ' ⚠' : ''}
               </text>
+              {selected && (
+                <text
+                  x={0}
+                  y={d / 2 + 0.34}
+                  fontSize={0.14}
+                  fill="#8b94a3"
+                  textAnchor="middle"
+                  dominantBaseline="hanging"
+                  pointerEvents="none"
+                >
+                  {w.toFixed(2)} × {d.toFixed(2)} m
+                </text>
+              )}
             </g>
           );
         })}

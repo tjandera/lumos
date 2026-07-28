@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { clearScene } from './persistence';
 
 interface Props {
   children: ReactNode;
@@ -19,6 +20,21 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[app] render error', error, info.componentStack);
   }
 
+  private reload = (): void => {
+    window.location.reload();
+  };
+
+  /** Wipe the persisted design (often the source of a bad document) and reload clean. */
+  private resetShowcase = (): void => {
+    clearScene();
+    try {
+      localStorage.removeItem('interior:welcomeTipsSeen');
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  };
+
   render(): ReactNode {
     if (this.state.error) {
       return (
@@ -26,12 +42,20 @@ export class ErrorBoundary extends Component<Props, State> {
           <div>
             <div className="mb-2 text-lg font-semibold">Something went wrong</div>
             <div className="max-w-md text-sm text-white/60">{this.state.error.message}</div>
-            <button
-              className="mt-4 rounded bg-white/10 px-4 py-1.5 text-sm hover:bg-white/20"
-              onClick={() => window.location.reload()}
-            >
-              Reload
-            </button>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                className="rounded bg-white/10 px-4 py-1.5 text-sm hover:bg-white/20"
+                onClick={this.reload}
+              >
+                Reload
+              </button>
+              <button
+                className="rounded bg-emerald-500/20 px-4 py-1.5 text-sm text-emerald-200 hover:bg-emerald-500/30"
+                onClick={this.resetShowcase}
+              >
+                Reset to Marina Studio
+              </button>
+            </div>
           </div>
         </div>
       );

@@ -1,11 +1,13 @@
 /**
  * Physically-sensible lighting rig for a scene document. Replaces the app's
  * ad-hoc ambient + directional lights with:
- *   - a sun `DirectionalLight` driven by `sunDirection` (elevation-aware color
- *     and intensity; shadow camera fitted to the room bounds; PCFSoft shadows
- *     with normal-offset bias tuned against acne on thin walls),
+ *   - a sun `DirectionalLight` driven by `sunVector(site, timeOfDay)`
+ *     (elevation-aware color and intensity; shadow camera fitted to the room
+ *     bounds; PCFSoft shadows with normal-offset bias tuned against acne on
+ *     thin walls),
  *   - a `HemisphereLight` + a procedural PMREM sky environment for ambient/IBL,
- *   - a shadow-casting `PointLight` + emissive glow per on-state lamp,
+ *   - a shadow-casting `PointLight` + emissive glow per on-state fixture in
+ *     `document.lights`,
  *   - quality presets (low/medium/high) and an optional N8AO pass on high.
  *
  * All heavy math lives in the pure, unit-tested `./lightingMath` helpers; this
@@ -16,10 +18,10 @@ import type {} from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { EffectComposer, N8AO, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type JSX } from "react";
 import * as THREE from "three";
-import type { LampLightConfig, SceneDocument } from "@interior/core";
-import { createSunLight, getLampLights, getSunLight, sunDirection } from "@interior/core";
+import type { SceneDocument } from "@interior/core";
+import { effectiveFixtureIntensity, sunVector } from "@interior/core";
 import { createSkyEnvironment } from "./environment.js";
 import {
   documentWorldBounds,
@@ -39,6 +41,10 @@ const SHADOW_NORMAL_BIAS = 0.035;
 
 /** Fallback bounds so the rig still lights an empty scene sensibly. */
 const DEFAULT_BOUNDS: Bounds3 = { min: { x: -3, y: 0, z: -3 }, max: { x: 3, y: 2.6, z: 3 } };
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
 
 export interface LightingRigProps {
   document: SceneDocument;
@@ -140,31 +146,29 @@ function SunLight({ toSun, elevation, bounds, castShadow, shadowMapSize }: SunLi
   );
 }
 
-interface LampLightsProps {
+interface FixtureLightsProps {
   document: SceneDocument;
-  lamps: LampLightConfig[];
+  dayFactor: number;
   castShadow: boolean;
   shadowMapSize: number;
 }
 
-function LampLights({ document, lamps, castShadow, shadowMapSize }: LampLightsProps): JSX.Element {
+/** One shadow-casting point light per on-state fixture in `document.lights`. */
+function FixtureLights({ document, dayFactor, castShadow, shadowMapSize }: FixtureLightsProps): JSX.Element {
   return (
-    <group name="lamp-lights">
-      {lamps.map((lamp) => {
-        if (!lamp.on) return null;
-        const item = document.furniture.find((f) => f.id === lamp.furnitureItemId);
-        if (!item) return null;
-        // Emit from near the top of the lamp (inside the shade).
-        const y = Math.max(0.2, item.dimensions.h * 0.85);
+    <group name="fixture-lights">
+      {document.lights.map((light) => {
+        const intensity = effectiveFixtureIntensity(light, dayFactor);
+        if (intensity <= 0) return null;
         return (
           <pointLight
-            key={lamp.id}
-            position={[item.position.x, y, item.position.z]}
-            color={lamp.color}
-            intensity={lamp.intensity}
+            key={light.id}
+            position={[light.position.x, light.position.y, light.position.z]}
+            color={light.color}
+            intensity={intensity}
             distance={8}
             decay={2}
-            castShadow={castShadow}
+            castShadow={castShadow && light.castShadow}
             shadow-mapSize-width={shadowMapSize || 512}
             shadow-mapSize-height={shadowMapSize || 512}
             shadow-bias={SHADOW_BIAS}
@@ -178,19 +182,22 @@ function LampLights({ document, lamps, castShadow, shadowMapSize }: LampLightsPr
 
 /**
  * Drop this inside an r3f `<Canvas shadows>` (in place of ad-hoc lights). Reads
- * the document's sun + lamp state and the chosen quality preset.
+ * the document's site + time of day for the sun, and its fixtures for the
+ * lamp/point lights, at the chosen quality preset.
  */
 export function LightingRig({ document, quality = "medium" }: LightingRigProps): JSX.Element {
   useRendererSetup();
 
   const settings = qualitySettings(quality);
-  const sunConfig = getSunLight(document) ?? createSunLight();
-  const sun = useMemo(() => sunDirection(sunConfig), [sunConfig]);
-  const sky = useMemo(() => skyColors(sun.elevation), [sun.elevation]);
+  const sun = useMemo(() => {
+    const date = new Date(document.view.timeOfDay);
+    return sunVector(document.site.lat, document.site.lng, date, document.site.trueNorthOffsetDeg);
+  }, [document.view.timeOfDay, document.site.lat, document.site.lng, document.site.trueNorthOffsetDeg]);
+  const sky = useMemo(() => skyColors(sun.altitude), [sun.altitude]);
   const bounds = useMemo(() => documentWorldBounds(document) ?? DEFAULT_BOUNDS, [document]);
-  const lamps = getLampLights(document);
+  const dayFactor = clamp01(sun.y);
 
-  useSkyEnvironment(sun.elevation);
+  useSkyEnvironment(sun.altitude);
 
   return (
     <group name="lighting-rig">
@@ -200,15 +207,15 @@ export function LightingRig({ document, quality = "medium" }: LightingRigProps):
         intensity={sky.hemiIntensity}
       />
       <SunLight
-        toSun={sun.toSun}
-        elevation={sun.elevation}
+        toSun={{ x: sun.x, y: sun.y, z: sun.z }}
+        elevation={sun.altitude}
         bounds={bounds}
         castShadow={settings.sunShadows}
         shadowMapSize={settings.shadowMapSize}
       />
-      <LampLights
+      <FixtureLights
         document={document}
-        lamps={lamps}
+        dayFactor={dayFactor}
         castShadow={settings.lampShadows}
         shadowMapSize={settings.shadowMapSize}
       />

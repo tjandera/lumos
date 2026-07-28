@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aabbOverlap, type FurnitureItem, type Point2D } from "@interior/core";
+import { aabbIntersects, furnitureAABB, roomCorners, type Vec2 } from "@interior/core";
 import { solve, DEFAULT_CLEARANCE, type PlacementRequest } from "./solver.js";
 import { docWithRoom, rectRoom, testCatalog, mulberry32 } from "./test-fixtures.js";
 
@@ -8,25 +8,29 @@ function req(catalogId: string, itemId: string, constraints: PlacementRequest["c
   return { catalogId, itemId, dimensions: item.dimensions, category: item.category, constraints, isExisting: false };
 }
 
-function asFurniture(p: { itemId: string; catalogId: string; position: { x: number; y: number; z: number }; rotationY: number; dimensions: { w: number; d: number; h: number } }): FurnitureItem {
-  return { id: p.itemId, catalogId: p.catalogId, position: p.position, rotationY: p.rotationY, dimensions: p.dimensions };
+function asFurniture(p: {
+  itemId: string;
+  catalogId: string;
+  position: { x: number; y: number; z: number };
+  rotationY: number;
+  dimensions: { w: number; d: number; h: number };
+}) {
+  return { id: p.itemId, catalogId: p.catalogId, position: p.position, rotationY: p.rotationY, scale: 1, dimensions: p.dimensions };
 }
 
-/** Distance from a world XZ point to the nearest wall segment of the room. */
-function distToNearestWall(walls: Point2D[], x: number, z: number): number {
+/** Distance from a world XZ point to the nearest wall segment of the room's corner loop. */
+function distToNearestWall(corners: Vec2[], x: number, z: number): number {
   let min = Infinity;
-  for (let i = 0; i < walls.length; i++) {
-    const a = walls[i]!;
-    const b = walls[(i + 1) % walls.length]!;
-    const ax = a.x;
-    const az = a.y;
-    const dx = b.x - ax;
-    const dz = b.y - az;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i]!;
+    const b = corners[(i + 1) % corners.length]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
     const lenSq = dx * dx + dz * dz;
-    let t = lenSq < 1e-9 ? 0 : ((x - ax) * dx + (z - az) * dz) / lenSq;
+    let t = lenSq < 1e-9 ? 0 : ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
     t = Math.max(0, Math.min(1, t));
-    const cx = ax + t * dx;
-    const cz = az + t * dz;
+    const cx = a.x + t * dx;
+    const cz = a.z + t * dz;
     min = Math.min(min, Math.hypot(x - cx, z - cz));
   }
   return min;
@@ -38,7 +42,7 @@ describe("solver determinism", () => {
     const requests = [
       req("sofa-oslo-3seat", "a", { nearWall: true }),
       req("table-coffee-mira", "b", { zone: "center", adjacentTo: "a" }),
-      req("armchair-birch", "c", { facingItem: "a" })
+      req("armchair-birch", "c", { facingItem: "a" }),
     ];
     const first = solve(doc, rectRoom(), requests);
     const second = solve(doc, rectRoom(), requests);
@@ -80,7 +84,7 @@ describe("hard constraints are never violated", () => {
       // No pair of placed items overlaps (core's own collision check).
       for (let i = 0; i < placed.length; i++) {
         for (let j = i + 1; j < placed.length; j++) {
-          expect(aabbOverlap(placed[i]!, placed[j]!)).toBe(false);
+          expect(aabbIntersects(furnitureAABB(placed[i]!), furnitureAABB(placed[j]!))).toBe(false);
         }
       }
 
@@ -100,7 +104,7 @@ describe("constraint scoring", () => {
     const room = rectRoom();
     const result = solve(docWithRoom(room), room, [req("armchair-birch", "a", { nearWall: true })]);
     const placed = result.placed[0]!;
-    const dist = distToNearestWall(room.walls, placed.position.x, placed.position.z);
+    const dist = distToNearestWall(roomCorners(room), placed.position.x, placed.position.z);
     // Back is against the wall: center is within ~half-depth of the wall line.
     expect(dist).toBeLessThan(0.7);
   });
@@ -109,9 +113,8 @@ describe("constraint scoring", () => {
     const room = rectRoom();
     const result = solve(docWithRoom(room), room, [req("armchair-birch", "a", { zone: "corner" })]);
     const p = result.placed[0]!;
-    const nearestVertex = Math.min(
-      ...room.walls.map((w) => Math.hypot(w.x - p.position.x, w.y - p.position.z))
-    );
+    const corners = roomCorners(room);
+    const nearestVertex = Math.min(...corners.map((c) => Math.hypot(c.x - p.position.x, c.z - p.position.z)));
     expect(nearestVertex).toBeLessThan(1.2);
   });
 
@@ -144,7 +147,7 @@ describe("reject-and-repair failures", () => {
     const result = solve(docWithRoom(room), room, [req("bed-queen-linden", "a", { nearWall: true })]);
     if (result.placed.length > 0) {
       const p = result.placed[0]!;
-      // Door is on wall 0 (z=0) at x=1.0, width 0.9 → swing square roughly
+      // Door is on wall w0 (z=0) at offset 1.0, width 0.9 → swing square roughly
       // x in [0.55,1.45], z in [0,0.9]. The bed footprint must not intrude.
       const overlapsDoorX = Math.abs(p.position.x - 1.0) < 0.45 + p.dimensions.w / 2;
       const nearDoorZ = p.position.z - p.dimensions.d / 2 < 0.9;

@@ -12,6 +12,15 @@ Kit" (2.0)** pack.
 | --- | --- | --- | --- |
 | Furniture Kit 2.0 (sofa, chairs, tables, bed, bookcase, desk, TV stand, lamp, plant, rug, …) | CC0-1.0 | https://kenney.nl/assets/furniture-kit | Kenney (www.kenney.nl) |
 
+## Environment HDRI (Realism mode, loaded at runtime)
+
+| Asset | License (SPDX) | Source | Author | Notes |
+| --- | --- | --- | --- | --- |
+| `apartment` (1k HDR) | CC0-1.0 | Poly Haven via `@react-three/drei` `<Environment preset="apartment" />` | Poly Haven | Not committed to the repo — fetched by drei when Realism is on. https://polyhaven.com/a/apartment |
+
+Procedural fabric / wood / plaster / carpet textures used in Realism mode are generated
+in-browser (CanvasTexture) and are original to this project (no third-party files).
+
 CC0 = public domain, no attribution required (credit appreciated). Models were copied
 from the pack's `Models/GLTF format/*.glb`, renamed to their catalog IDs; the renderer
 recenters and scales each to its real-world catalog dimensions at load time.

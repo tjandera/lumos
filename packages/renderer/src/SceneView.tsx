@@ -16,8 +16,9 @@ import {
   type FixtureKind,
   type Material,
 } from '@interior/core';
-import { getCatalogItem, DEFAULT_ITEM, type CatalogItem } from '@interior/catalog';
-import { computeWallShape, buildWallGeometry } from './wallGeometry';
+import { getCatalogItem, DEFAULT_ITEM, type CatalogItem, type CatalogCategory } from '@interior/catalog';
+import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
+import { applyRealismMaterials, createRealismMaterial, plasterTexture } from './realismMaterials.js';
 
 /**
  * Renders a SceneDocument as 3D. Walls are extruded from their elevation profile with
@@ -31,6 +32,12 @@ export interface SceneViewProps {
   onSelectFurniture?: (id: string) => void;
   /** 0 (night) .. 1 (full daylight) — drives fixtures with `auto` dusk-ramping on. */
   dayFactor?: number;
+  /** Ids of furniture whose footprints currently overlap another item's — drawn with a
+   * red highlight instead of (or in addition to) the normal selection highlight, so an
+   * overlap is just as visible in 3D as it already is in the Plan editor. */
+  collidingFurnitureIds?: Set<string>;
+  /** Stronger lamp glow + soft fixture shadows (host app's Realism toggle). */
+  realism?: boolean;
 }
 
 export function SceneView({
@@ -39,35 +46,45 @@ export function SceneView({
   selectedFurnitureId = null,
   onSelectFurniture,
   dayFactor = 0,
+  collidingFurnitureIds,
+  realism = false,
 }: SceneViewProps) {
   const centroid = useMemo(() => roomCentroid(doc), [doc]);
   return (
     <group>
-      <Floor doc={doc} />
-      <Ceiling doc={doc} />
-      {doc.rooms.flatMap((room) =>
-        room.walls.map((wall) => (
+      <Floor doc={doc} realism={realism} />
+      <Ceiling doc={doc} realism={realism} />
+      {(doc.rooms ?? []).flatMap((room) =>
+        (room.walls ?? []).map((wall) => (
           <WallMesh
             key={wall.id}
             wall={wall}
-            openings={doc.openings}
+            openings={doc.openings ?? []}
             centroid={centroid}
             cutaway={cutaway}
             material={room.materials.wall}
+            realism={realism}
           />
         )),
       )}
-      {doc.openings
+      {(doc.openings ?? [])
         .filter((o) => o.kind === 'window')
         .map((o) => {
           const wall = findWallById(doc, o.wallId);
           return wall ? <WindowFill key={o.id} opening={o} wall={wall} /> : null;
         })}
-      {doc.furniture.map((item) => (
-        <FurnitureBox key={item.id} item={item} selected={item.id === selectedFurnitureId} onSelect={onSelectFurniture} />
+      {(doc.furniture ?? []).map((item) => (
+        <FurnitureBox
+          key={item.id}
+          item={item}
+          selected={item.id === selectedFurnitureId}
+          colliding={collidingFurnitureIds?.has(item.id) ?? false}
+          onSelect={onSelectFurniture}
+          realism={realism}
+        />
       ))}
-      {doc.lights.map((light) => (
-        <Fixture key={light.id} light={light} dayFactor={dayFactor} />
+      {(doc.lights ?? []).map((light) => (
+        <Fixture key={light.id} light={light} dayFactor={dayFactor} realism={realism} />
       ))}
     </group>
   );
@@ -79,12 +96,14 @@ function WallMesh({
   centroid,
   cutaway,
   material,
+  realism,
 }: {
   wall: Wall;
   openings: Opening[];
   centroid: { x: number; z: number };
   cutaway: boolean;
   material: Material;
+  realism?: boolean;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -124,6 +143,16 @@ function WallMesh({
     mesh.castShadow = mat.opacity > 0.5;
   });
 
+  const plasterMap = useMemo(() => {
+    if (!realism) return null;
+    const map = plasterTexture(material.color).clone();
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2.5, 2.5);
+    map.needsUpdate = true;
+    return map;
+  }, [realism, material.color]);
+  useEffect(() => () => plasterMap?.dispose(), [plasterMap]);
+
   return (
     <mesh
       ref={meshRef}
@@ -134,18 +163,45 @@ function WallMesh({
       receiveShadow
       userData={{ blocksLight: true }}
     >
-      <meshStandardMaterial ref={matRef} color={material.color} roughness={finishToRoughness(material.finish)} />
+      <meshStandardMaterial
+        ref={matRef}
+        color={material.color}
+        map={plasterMap}
+        roughness={finishToRoughness(material.finish)}
+        envMapIntensity={realism ? 0.7 : 0.22}
+      />
     </mesh>
   );
 }
 
-function Floor({ doc }: { doc: SceneDocument }) {
+function Floor({ doc, realism }: { doc: SceneDocument; realism?: boolean }) {
   const { center, size } = useMemo(() => footprint(doc), [doc]);
   const material = doc.rooms[0]?.materials.floor ?? DEFAULT_FLOOR_MATERIAL;
+  const realismMat = useMemo(
+    () =>
+      realism
+        ? createRealismMaterial({
+            category: 'floor',
+            color: material.color,
+            roughness: finishToRoughness(material.finish),
+          })
+        : null,
+    [realism, material.color, material.finish],
+  );
+  useEffect(() => () => realismMat?.dispose(), [realismMat]);
+
   return (
     <mesh position={[center.x, -0.02, center.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[size.x + 0.6, size.z + 0.6]} />
-      <meshStandardMaterial color={material.color} roughness={finishToRoughness(material.finish)} />
+      {realismMat ? (
+        <primitive object={realismMat} attach="material" />
+      ) : (
+        <meshStandardMaterial
+          color={material.color}
+          roughness={finishToRoughness(material.finish)}
+          envMapIntensity={0.18}
+        />
+      )}
     </mesh>
   );
 }
@@ -157,7 +213,7 @@ function Floor({ doc }: { doc: SceneDocument }) {
  * Rendered `DoubleSide` so it reliably occludes sun/lux rays approaching from either
  * side, independent of that visual fade.
  */
-function Ceiling({ doc }: { doc: SceneDocument }) {
+function Ceiling({ doc, realism }: { doc: SceneDocument; realism?: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const { center, size } = useMemo(() => footprint(doc), [doc]);
@@ -166,6 +222,15 @@ function Ceiling({ doc }: { doc: SceneDocument }) {
     const heights = doc.rooms.flatMap((r) => r.walls.map((w) => w.height));
     return heights.length ? Math.max(...heights) : 2.7;
   }, [doc.rooms]);
+  const plasterMap = useMemo(() => {
+    if (!realism) return null;
+    const map = plasterTexture(material.color).clone();
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 2);
+    map.needsUpdate = true;
+    return map;
+  }, [realism, material.color]);
+  useEffect(() => () => plasterMap?.dispose(), [plasterMap]);
 
   useFrame(({ camera }) => {
     const mat = matRef.current;
@@ -189,8 +254,10 @@ function Ceiling({ doc }: { doc: SceneDocument }) {
       <meshStandardMaterial
         ref={matRef}
         color={material.color}
+        map={plasterMap}
         roughness={finishToRoughness(material.finish)}
         side={THREE.DoubleSide}
+        envMapIntensity={realism ? 0.35 : 0.15}
       />
     </mesh>
   );
@@ -258,11 +325,15 @@ function findWallById(doc: SceneDocument, wallId: string): Wall | undefined {
 function FurnitureBox({
   item,
   selected,
+  colliding,
   onSelect,
+  realism,
 }: {
   item: FurnitureInstance;
   selected: boolean;
+  colliding?: boolean;
   onSelect?: (id: string) => void;
+  realism?: boolean;
 }) {
   const cat = getCatalogItem(item.catalogId) ?? DEFAULT_ITEM;
   return (
@@ -280,51 +351,83 @@ function FurnitureBox({
       }}
     >
       {cat.model ? (
-        <Suspense fallback={<PlaceholderBox cat={cat} />}>
-          <FurnitureModel url={cat.model} targetWidth={cat.width} />
+        <Suspense fallback={<PlaceholderBox cat={cat} realism={realism} />}>
+          <FurnitureModel
+            url={cat.model}
+            targetWidth={cat.width}
+            category={cat.category}
+            color={cat.color}
+            realism={realism}
+          />
         </Suspense>
       ) : (
-        <PlaceholderBox cat={cat} />
+        <PlaceholderBox cat={cat} realism={realism} />
       )}
-      {selected && <HighlightBox cat={cat} />}
+      {colliding && <HighlightBox cat={cat} color="#ef4444" opacity={0.32} />}
+      {selected && !colliding && <HighlightBox cat={cat} />}
     </group>
   );
 }
 
 /** Colored box — the loading/fallback state and what non-model catalog items use. */
-function PlaceholderBox({ cat }: { cat: CatalogItem }) {
+function PlaceholderBox({ cat, realism }: { cat: CatalogItem; realism?: boolean }) {
+  const realismMat = useMemo(
+    () => (realism ? createRealismMaterial({ category: cat.category, color: cat.color }) : null),
+    [realism, cat.category, cat.color],
+  );
+  useEffect(() => () => realismMat?.dispose(), [realismMat]);
+
   return (
     <mesh position={[0, cat.height / 2, 0]} castShadow receiveShadow>
       <boxGeometry args={[cat.width, cat.height, cat.depth]} />
-      <meshStandardMaterial color={cat.color} />
+      {realismMat ? (
+        <primitive object={realismMat} attach="material" />
+      ) : (
+        <meshStandardMaterial color={cat.color} roughness={0.62} metalness={0.04} envMapIntensity={0.15} />
+      )}
     </mesh>
   );
 }
 
-/** Translucent blue overlay for the selected item — works over any model. Furniture is
- * free to overlap (e.g. a rug under a table); this is purely a selection indicator, not
- * a collision warning. */
-function HighlightBox({ cat }: { cat: CatalogItem }) {
+/** Translucent overlay over any model — blue for the current selection, red (see
+ * `FurnitureBox`) when the item's footprint overlaps another's. Furniture is otherwise
+ * free to overlap (e.g. a rug under a table); this is a visual indicator, not a
+ * physical constraint. */
+function HighlightBox({ cat, color = '#38bdf8', opacity = 0.16 }: { cat: CatalogItem; color?: string; opacity?: number }) {
   return (
     <mesh position={[0, cat.height / 2, 0]}>
       <boxGeometry args={[cat.width * 1.05, cat.height * 1.05, cat.depth * 1.05]} />
-      <meshBasicMaterial color="#38bdf8" transparent opacity={0.16} depthWrite={false} />
+      <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
     </mesh>
   );
 }
 
-/** Loads a GLB, recenters it to the floor, and uniformly scales it to the catalog width. */
-function FurnitureModel({ url, targetWidth }: { url: string; targetWidth: number }) {
+/** Loads a GLB, recenters it to the floor, and uniformly scales it to the catalog width.
+ * When Realism is on, Kenney's flat materials are replaced with fabric/wood/carpet PBR. */
+function FurnitureModel({
+  url,
+  targetWidth,
+  category,
+  color,
+  realism,
+}: {
+  url: string;
+  targetWidth: number;
+  category: CatalogCategory;
+  color: string;
+  realism?: boolean;
+}) {
   const { scene } = useGLTF(url);
   const object = useMemo(() => {
     const cloned = scene.clone(true);
-    cloned.traverse((o) => {
+    cloned.traverse((o: THREE.Object3D) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
       }
     });
+    if (realism) applyRealismMaterials(cloned, category, color);
     const box = new THREE.Box3().setFromObject(cloned);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
@@ -334,7 +437,7 @@ function FurnitureModel({ url, targetWidth }: { url: string; targetWidth: number
     wrapper.add(cloned);
     wrapper.scale.setScalar(s);
     return wrapper;
-  }, [scene, targetWidth]);
+  }, [scene, targetWidth, category, color, realism]);
   return <primitive object={object} />;
 }
 
@@ -353,16 +456,40 @@ const FIXTURE_SIZE: Record<FixtureKind, number> = {
   table: 0.22,
 };
 
-function Fixture({ light, dayFactor }: { light: LightInstance; dayFactor: number }) {
+function Fixture({ light, dayFactor, realism }: { light: LightInstance; dayFactor: number; realism?: boolean }) {
   const effIntensity = effectiveFixtureIntensity(light, dayFactor);
   const isLit = effIntensity > 0;
+  // three.js physical PointLight intensity is candela; scale a touch for readable rooms.
+  const threeIntensity = (effIntensity / 70) * (realism ? 1.85 : 0.85);
+  const castShadow = Boolean(realism && light.castShadow && isLit);
   return (
     <group position={[light.position.x, light.position.y, light.position.z]}>
       {isLit && (
-        <pointLight color={light.color} intensity={effIntensity} decay={2} castShadow={light.castShadow} />
+        <pointLight
+          color={light.color}
+          intensity={threeIntensity}
+          distance={realism ? 12 : 6}
+          decay={2}
+          castShadow={castShadow}
+          shadow-mapSize={castShadow ? [1024, 1024] : [512, 512]}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.04}
+        />
+      )}
+      {/* Warm visible glow so lamps read as light sources, not just scene illumination. */}
+      {isLit && (
+        <mesh>
+          <sphereGeometry args={[realism ? 0.085 : 0.045, 16, 16]} />
+          <meshStandardMaterial
+            color={light.color}
+            emissive={light.color}
+            emissiveIntensity={realism ? 4.5 : 1.2}
+            toneMapped={false}
+          />
+        </mesh>
       )}
       <Suspense fallback={<FixtureBulb light={light} lit={isLit} />}>
-        <FixtureModel kind={light.kind} color={light.color} lit={isLit} />
+        <FixtureModel kind={light.kind} color={light.color} lit={isLit} realism={realism} />
       </Suspense>
     </group>
   );
@@ -377,13 +504,14 @@ function FixtureBulb({ light, lit }: { light: LightInstance; lit: boolean }) {
         color={light.color}
         emissive={light.color}
         emissiveIntensity={lit ? 2 : 0}
+        toneMapped={false}
       />
     </mesh>
   );
 }
 
 /** The real fixture GLB for this mount kind, tinted/glowing to match the bulb's state. */
-function FixtureModel({ kind, color, lit }: { kind: FixtureKind; color: string; lit: boolean }) {
+function FixtureModel({ kind, color, lit, realism }: { kind: FixtureKind; color: string; lit: boolean; realism?: boolean }) {
   const { scene } = useGLTF(FIXTURE_MODELS[kind]);
   const object = useMemo(() => {
     const cloned = scene.clone(true);
@@ -392,14 +520,16 @@ function FixtureModel({ kind, color, lit }: { kind: FixtureKind; color: string; 
     const center = box.getCenter(new THREE.Vector3());
     const target = FIXTURE_SIZE[kind];
     const s = size.x > 1e-4 ? target / size.x : 1;
-    cloned.traverse((o) => {
+    cloned.traverse((o: THREE.Object3D) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
         mesh.castShadow = true;
+        mesh.receiveShadow = true;
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (mat && 'emissive' in mat) {
           mat.emissive = new THREE.Color(lit ? color : '#000000');
-          mat.emissiveIntensity = lit ? 0.8 : 0;
+          mat.emissiveIntensity = lit ? (realism ? 2.4 : 0.6) : 0;
+          mat.toneMapped = false;
         }
       }
     });
@@ -411,7 +541,7 @@ function FixtureModel({ kind, color, lit }: { kind: FixtureKind; color: string; 
     wrapper.add(cloned);
     wrapper.scale.setScalar(s);
     return wrapper;
-  }, [scene, kind, color, lit]);
+  }, [scene, kind, color, lit, realism]);
   return <primitive object={object} />;
 }
 

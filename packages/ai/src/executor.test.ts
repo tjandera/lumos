@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sceneDocumentSchema } from "@interior/core";
+import { SceneDocumentSchema } from "@interior/core";
 import { executeTool, type ExecuteContext } from "./executor.js";
 import type { ToolCall } from "./provider.js";
 import { docWithRoom, testCatalog } from "./test-fixtures.js";
@@ -54,7 +54,7 @@ describe("executeTool mutations are immutable + schema-valid", () => {
     expect(doc.furniture).toHaveLength(0); // input untouched
     expect(res.document.furniture).toHaveLength(1);
     expect(res.document.furniture[0]!.id).toBe("gen-1");
-    expect(sceneDocumentSchema.safeParse(res.document).success).toBe(true);
+    expect(SceneDocumentSchema.safeParse(res.document).success).toBe(true);
   });
 
   it("placeFurniture reports unknown catalog id", () => {
@@ -72,7 +72,7 @@ describe("executeTool mutations are immutable + schema-valid", () => {
     const moved = executeTool(placed.document, call("moveItem", { itemId: id, constraints: { rotateDeg: 45 } }), ctx());
     expect(moved.changed).toBe(true);
     expect(moved.document.furniture[0]!.rotationY).not.toBe(before);
-    expect(sceneDocumentSchema.safeParse(moved.document).success).toBe(true);
+    expect(SceneDocumentSchema.safeParse(moved.document).success).toBe(true);
   });
 
   it("moveItem reports item_not_found for a bad id", () => {
@@ -86,14 +86,13 @@ describe("executeTool mutations are immutable + schema-valid", () => {
     const id = placed.document.furniture[0]!.id;
     const removed = executeTool(placed.document, call("removeItem", { itemId: id }), ctx());
     expect(removed.document.furniture).toHaveLength(0);
-    expect(sceneDocumentSchema.safeParse(removed.document).success).toBe(true);
+    expect(SceneDocumentSchema.safeParse(removed.document).success).toBe(true);
   });
 
-  it("setTimeOfDay upserts the sun light", () => {
+  it("setTimeOfDay updates the view's time of day", () => {
     const res = executeTool(docWithRoom(), call("setTimeOfDay", { time: "19:30", date: "2026-07-23" }), ctx());
-    const sun = res.document.lights.find((l) => l.type === "sun");
-    expect(sun).toMatchObject({ time: "19:30", date: "2026-07-23" });
-    expect(sceneDocumentSchema.safeParse(res.document).success).toBe(true);
+    expect(res.document.view.timeOfDay).toBe("2026-07-23T19:30:00");
+    expect(SceneDocumentSchema.safeParse(res.document).success).toBe(true);
   });
 
   it("toggleLamp creates then toggles a lamp for a furniture item", () => {
@@ -101,10 +100,10 @@ describe("executeTool mutations are immutable + schema-valid", () => {
     const placed = executeTool(doc, call("placeFurniture", { catalogId: "lighting-floor-arc", constraints: { nearWall: true } }), ctx());
     const id = placed.document.furniture[0]!.id;
     const on = executeTool(placed.document, call("toggleLamp", { itemId: id, on: true }), ctx());
-    const lamp = on.document.lights.find((l) => l.type === "lamp");
+    const lamp = on.document.lights.find((l) => l.furnitureItemId === id);
     expect(lamp).toMatchObject({ furnitureItemId: id, on: true });
     const off = executeTool(on.document, call("toggleLamp", { itemId: id, on: false }), ctx());
-    expect(off.document.lights.find((l) => l.type === "lamp")).toMatchObject({ on: false });
+    expect(off.document.lights.find((l) => l.furnitureItemId === id)).toMatchObject({ on: false });
   });
 
   it("querySpace returns facts without mutating", () => {
@@ -122,7 +121,7 @@ describe("executeTool mutations are immutable + schema-valid", () => {
     const res = executeTool(doc, call("suggestLayout", { style: "cozy", budget: 3000 }), ctx());
     expect(res.changed).toBe(true);
     expect(res.document.furniture.length).toBeGreaterThan(0);
-    expect(sceneDocumentSchema.safeParse(res.document).success).toBe(true);
+    expect(SceneDocumentSchema.safeParse(res.document).success).toBe(true);
     expect(res.resultForLLM).toMatchObject({ ok: true });
   });
 });

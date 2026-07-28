@@ -8,10 +8,20 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
 }
 
-/** App-wide Ctrl/Cmd+Z (undo), Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y (redo), and Delete/Backspace
- * (remove whatever's currently selected — furniture, a light fixture, or a Plan-mode
- * wall/opening). Disabled while focus is in a text field so typing "z" or deleting text
- * doesn't get hijacked. */
+/** App-wide keyboard shortcuts. Disabled while focus is in a text field so typing
+ * doesn't get hijacked.
+ *
+ * - Ctrl/Cmd+Z (undo), Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y (redo)
+ * - Delete/Backspace: remove whatever's selected (furniture, a light fixture, or a
+ *   Plan-mode wall/opening)
+ * - R: rotate the selected furniture 15°
+ * - Ctrl/Cmd+D: duplicate the selected furniture, offset slightly, and select the copy
+ * - Escape: clear every selection
+ * - Space: play/pause the time-of-day sweep
+ * - 1 / 2: jump to the 3D / Plan tab
+ * - C: toggle cutaway (dollhouse walls)
+ * - L: toggle the Lighting panel
+ */
 export function useGlobalShortcuts(): void {
   const undo = useSceneStore((s) => s.undo);
   const redo = useSceneStore((s) => s.redo);
@@ -22,6 +32,10 @@ export function useGlobalShortcuts(): void {
   const selectLight = useUiStore((s) => s.selectLight);
   const planSelection = useUiStore((s) => s.planSelection);
   const setPlanSelection = useUiStore((s) => s.setPlanSelection);
+  const togglePlaying = useUiStore((s) => s.togglePlaying);
+  const setMode = useUiStore((s) => s.setMode);
+  const toggleCutaway = useUiStore((s) => s.toggleCutaway);
+  const toggleLighting = useUiStore((s) => s.toggleLighting);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -37,6 +51,67 @@ export function useGlobalShortcuts(): void {
       if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+        return;
+      }
+
+      if (mod && e.key.toLowerCase() === 'd') {
+        if (!selectedFurnitureId) return;
+        e.preventDefault();
+        const sourceId = selectedFurnitureId;
+        const newId = crypto.randomUUID();
+        edit((d) => {
+          const f = d.furniture.find((x) => x.id === sourceId);
+          if (!f) return;
+          d.furniture.push({
+            ...f,
+            id: newId,
+            position: { x: f.position.x + 0.25, y: f.position.y, z: f.position.z + 0.25 },
+          });
+        });
+        selectFurniture(newId);
+        return;
+      }
+
+      if (!mod && e.key.toLowerCase() === 'r') {
+        if (!selectedFurnitureId) return;
+        e.preventDefault();
+        const id = selectedFurnitureId;
+        edit((d) => {
+          const f = d.furniture.find((x) => x.id === id);
+          if (f) f.rotationY = ((f.rotationY + 15) % 360 + 360) % 360;
+        });
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        selectFurniture(null);
+        selectLight(null);
+        setPlanSelection(null);
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlaying();
+        return;
+      }
+
+      if (e.key === '1') {
+        setMode('3d');
+        return;
+      }
+      if (e.key === '2') {
+        setMode('plan');
+        return;
+      }
+      if (!mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        toggleCutaway();
+        return;
+      }
+      if (!mod && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        toggleLighting();
         return;
       }
 
@@ -76,5 +151,19 @@ export function useGlobalShortcuts(): void {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undo, redo, edit, selectedFurnitureId, selectLight, selectedLightId, selectFurniture, planSelection, setPlanSelection]);
+  }, [
+    undo,
+    redo,
+    edit,
+    selectedFurnitureId,
+    selectLight,
+    selectedLightId,
+    selectFurniture,
+    planSelection,
+    setPlanSelection,
+    togglePlaying,
+    setMode,
+    toggleCutaway,
+    toggleLighting,
+  ]);
 }

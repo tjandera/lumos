@@ -591,9 +591,9 @@ export function LightingPanel() {
             Save
           </button>
         </div>
-        {doc.lightingScenes.length > 0 && (
+        {(doc.lightingScenes?.length ?? 0) > 0 && (
           <div className="mt-2 space-y-1">
-            {doc.lightingScenes.map((s) => (
+            {(doc.lightingScenes ?? []).map((s) => (
               <div key={s.id} className="flex items-center justify-between rounded bg-white/5 px-1.5 py-1 text-xs">
                 <span className="truncate text-white/70">{s.name}</span>
                 <div className="flex shrink-0 items-center gap-1">
@@ -613,11 +613,11 @@ export function LightingPanel() {
       <Section title="Realism">
         <label className="flex items-center gap-2 text-xs text-white/60">
           <input type="checkbox" checked={enhancedRealism} onChange={toggleEnhancedRealism} />
-          Ambient occlusion + reflections + bloom
+          Studio HDRI + fabric/wood materials + soft shadows
         </label>
         <p className="mt-1.5 text-[11px] leading-snug text-white/40">
-          Real-time, not offline path-traced GI — heavier than the default view, so it's
-          opt-in. Full multi-bounce global illumination is a larger future step.
+          Realism swaps in an apartment HDRI, fabric/wood/plaster materials on the
+          Kenney models, contact shadows, window daylight, and lamp glow.
         </p>
       </Section>
 

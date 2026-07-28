@@ -67,8 +67,7 @@ interface UiStore {
   setRoomStandardId: (id: string) => void;
 
   // --- Phase 10: realism ---
-  /** Real-time image-based ambient lighting/reflections + SSAO + bloom. Opt-in: it's
-   * heavier than the default view, which stays untouched unless this is on. */
+  /** Cinematic lighting: time-of-day sky IBL, window fill, soft shadows, lamp glow. */
   enhancedRealism: boolean;
   toggleEnhancedRealism: () => void;
   /** One-shot high-quality capture: not offline path-traced GI, just every quality
@@ -175,7 +174,7 @@ export const useUiStore = create<UiStore>()((set) => ({
   roomStandardId: 'living',
   setRoomStandardId: (roomStandardId) => set({ roomStandardId }),
 
-  enhancedRealism: false,
+  enhancedRealism: true,
   toggleEnhancedRealism: () => set((s) => ({ enhancedRealism: !s.enhancedRealism })),
   photoRequested: false,
   photoBusy: false,
