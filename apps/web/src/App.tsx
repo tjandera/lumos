@@ -5,6 +5,7 @@ import { useUiStore, type ViewMode } from './uiStore';
 import { Scene3D } from './Scene3D';
 import { PlanEditor } from './PlanEditor';
 import { PerfHud } from './PerfHud';
+import { QualityGovernor } from './QualityGovernor';
 import { CatalogPanel } from './CatalogPanel';
 import { TimeOfDayBar } from './TimeOfDayBar';
 import { AIPanel } from './AIPanel';
@@ -33,6 +34,7 @@ export default function App() {
       <Scene3D active={mode === '3d'} />
       {mode === 'plan' && <PlanEditor />}
       {mode === '3d' && <PerfHud />}
+      <QualityGovernor />
       <RoomStatus />
       {mode === '3d' && <TimeOfDayBar />}
       {mode === '3d' && <SelectionStatus />}
