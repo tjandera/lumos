@@ -17,6 +17,7 @@ import { useUiStore, type Weather } from './uiStore';
 import { PerfProbe } from './PerfProbe';
 import { SceneEnvironment, RealismEffects, PhotoCapture, WindowFillLights } from './Realism';
 import { FurnitureGizmo } from './FurnitureGizmo';
+import { FlyControls } from './FlyControls';
 import { collidingFurnitureIds } from './collisionUi';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -608,6 +609,7 @@ export function Scene3D({ active }: { active: boolean }) {
         maxDistance={30}
         makeDefault
       />
+      <FlyControls active={active} />
       <PerfProbe />
       {enhancedRealism && (
         <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} />

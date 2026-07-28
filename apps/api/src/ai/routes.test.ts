@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { MockProvider } from "@interior/ai";
-import { createEmptyDocument, type Room, type SceneDocument } from "@interior/core";
+import { createEmptyDocument, rectWalls, DEFAULT_ROOM_MATERIALS, type Room, type SceneDocument } from "@interior/core";
 import { buildApp } from "../app.js";
 
 /** A rectangular 5m x 4m room, so solver-backed tools (suggestLayout, placeFurniture) have somewhere to place items. */
@@ -9,15 +9,8 @@ function testRoom(): Room {
   return {
     id: "room-1",
     name: "Living Room",
-    walls: [
-      { x: 0, y: 0 },
-      { x: 5, y: 0 },
-      { x: 5, y: 4 },
-      { x: 0, y: 4 }
-    ],
-    wallThickness: 0.1,
-    height: 2.5,
-    openings: []
+    walls: rectWalls(5, 4, 2.5, 0.1),
+    materials: DEFAULT_ROOM_MATERIALS
   };
 }
 

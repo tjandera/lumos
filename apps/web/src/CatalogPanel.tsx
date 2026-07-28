@@ -4,6 +4,7 @@ import { catalog, type CatalogCategory } from '@interior/catalog';
 import { useSceneStore } from './store';
 import { useUiStore } from './uiStore';
 import { findFreePlacement } from './placement';
+import { FurnitureThumbnail } from './FurnitureThumbnail';
 
 const CATEGORY_LABEL: Record<CatalogCategory, string> = {
   seating: 'Seating',
@@ -94,16 +95,17 @@ export function CatalogPanel() {
         ))}
       </div>
 
-      <div className="flex max-h-52 flex-wrap gap-1 overflow-y-auto">
-        {items.length === 0 && <div className="px-1 py-2 text-xs text-white/40">No matches.</div>}
+      <div className="grid max-h-64 grid-cols-3 gap-1 overflow-y-auto">
+        {items.length === 0 && <div className="col-span-3 px-1 py-2 text-xs text-white/40">No matches.</div>}
         {items.map((c) => (
           <button
             key={c.id}
             onClick={() => add(c.id)}
-            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-            title={`${c.width} × ${c.depth} m`}
+            className="flex flex-col items-center gap-1 rounded-md bg-white/10 px-1 py-1.5 hover:bg-white/20"
+            title={`${c.name} — ${c.width} × ${c.depth} m`}
           >
-            {c.name}
+            <FurnitureThumbnail catalogId={c.id} w={c.width} d={c.depth} color={c.color} />
+            <span className="w-full truncate text-center text-[10px] leading-tight text-white/80">{c.name}</span>
           </button>
         ))}
       </div>
