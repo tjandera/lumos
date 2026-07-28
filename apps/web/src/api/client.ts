@@ -1,4 +1,4 @@
-import type { SceneDocument } from "@interior/core";
+import { coarsenDocumentForSharing, type SceneDocument } from "@interior/core";
 
 const BASE_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
@@ -122,14 +122,15 @@ export async function getDesign(id: string): Promise<SceneDocument> {
  * design.
  */
 export async function createDesign(doc: SceneDocument | { name: string }): Promise<SceneDocument> {
-  return request<SceneDocument>("/designs", { method: "POST", body: JSON.stringify(doc) });
+  const body = "site" in doc ? coarsenDocumentForSharing(doc) : doc;
+  return request<SceneDocument>("/designs", { method: "POST", body: JSON.stringify(body) });
 }
 
 /** Save (overwrite) an existing design's full document. */
 export async function saveDesign(id: string, doc: SceneDocument): Promise<SceneDocument> {
   return request<SceneDocument>(`/designs/${encodeURIComponent(id)}`, {
     method: "PUT",
-    body: JSON.stringify(doc)
+    body: JSON.stringify(coarsenDocumentForSharing(doc))
   });
 }
 

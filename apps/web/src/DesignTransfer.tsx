@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
-import { migrateSceneDocument } from '@interior/core';
+import { coarsenDocumentForSharing, migrateSceneDocument } from '@interior/core';
 import { useSceneStore } from './store';
 
 const btn = 'rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20 inline-flex items-center gap-1';
@@ -19,7 +19,11 @@ export function DesignTransfer() {
   const [error, setError] = useState<string | null>(null);
 
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    // Exported files get passed around, so the site is coarsened to ~1km first — see
+    // `coarsenDocumentForSharing`. Costs the sun simulation nothing at that distance.
+    const blob = new Blob([JSON.stringify(coarsenDocumentForSharing(doc), null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -15,3 +15,4 @@ export * from './transform.js';
 export * from './document.js';
 export * from './sample.js';
 export * from './roomPhoto.js';
+export * from './privacy.js';
