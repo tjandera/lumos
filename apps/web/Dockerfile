@@ -10,9 +10,6 @@
 # apps/web/src/api/client.ts, apps/web/src/flags/features.ts) — they get
 # baked into the static bundle, so they must be passed as `--build-arg`, not
 # just as container env vars at `docker run` time.
-#
-# NOTE: not runtime-verified in this sandbox (no Docker daemon available) —
-# reviewed carefully by hand instead.
 
 # syntax=docker/dockerfile:1.7
 
@@ -28,7 +25,7 @@ RUN pnpm fetch
 
 FROM base AS build
 COPY --from=fetch /pnpm /pnpm
-COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/renderer/package.json packages/renderer/package.json

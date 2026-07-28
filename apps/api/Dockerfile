@@ -6,10 +6,6 @@
 # with:
 #   docker build -f apps/api/Dockerfile -t interior-api .
 # (docker-compose.yml at the repo root already sets this up.)
-#
-# NOTE: not runtime-verified in this sandbox (no Docker daemon available) —
-# reviewed carefully by hand instead. See IMPLEMENTATION_PLAN.md verification
-# notes / the delivering agent's report for details.
 
 # syntax=docker/dockerfile:1.7
 
@@ -32,7 +28,7 @@ RUN pnpm fetch
 # drops devDependencies from node_modules in place afterward.
 FROM base AS build
 COPY --from=fetch /pnpm /pnpm
-COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/renderer/package.json packages/renderer/package.json
@@ -42,8 +38,14 @@ RUN pnpm install --offline --frozen-lockfile
 COPY packages/core packages/core
 COPY packages/ai packages/ai
 COPY apps/api apps/api
-RUN pnpm --filter @interior/core --filter @interior/ai --filter @interior/api build \
-  && pnpm prune --prod
+# No `pnpm prune --prod` here: `pnpm prune` has no --filter/scoping support at all
+# ("Unknown option: 'recursive'" if you try), and running it unfiltered at the
+# workspace root — where apps/web and packages/renderer have a package.json (for the
+# install-layer cache above) but no source, since it was never copied into this stage —
+# wipes apps/api/node_modules entirely, including prod deps like fastify, not just
+# devDependencies. The runtime image carries a bit of devDependency weight for these
+# 3 packages as a result; that's a fine trade for actually working.
+RUN pnpm --filter @interior/core --filter @interior/ai --filter @interior/api build
 
 # ---- runtime: distroless-ish slim image, non-root user, only what's needed
 # to run `node apps/api/dist/index.js`.
