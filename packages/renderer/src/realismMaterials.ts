@@ -10,28 +10,24 @@ import type { CatalogCategory } from "@interior/catalog";
 
 const texCache = new Map<string, THREE.CanvasTexture>();
 
+function stubTexture(key: string): THREE.CanvasTexture {
+  // Headless/tests — return a 1×1 stub so imports don't explode outside a browser.
+  const data = new Uint8Array([200, 180, 160, 255]);
+  const tex = new THREE.DataTexture(data, 1, 1);
+  tex.needsUpdate = true;
+  texCache.set(key, tex as unknown as THREE.CanvasTexture);
+  return texCache.get(key)!;
+}
+
 function canvasTex(key: string, size: number, paint: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.CanvasTexture {
   const hit = texCache.get(key);
   if (hit) return hit;
-  if (typeof document === "undefined") {
-    // Headless/tests — return a 1×1 stub so imports don't explode outside a browser.
-    const data = new Uint8Array([200, 180, 160, 255]);
-    const tex = new THREE.DataTexture(data, 1, 1);
-    tex.needsUpdate = true;
-    texCache.set(key, tex as unknown as THREE.CanvasTexture);
-    return texCache.get(key)!;
-  }
+  if (typeof document === "undefined") return stubTexture(key);
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    const data = new Uint8Array([200, 180, 160, 255]);
-    const tex = new THREE.DataTexture(data, 1, 1);
-    tex.needsUpdate = true;
-    texCache.set(key, tex as unknown as THREE.CanvasTexture);
-    return texCache.get(key)!;
-  }
+  if (!ctx) return stubTexture(key);
   paint(ctx, size);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -40,6 +36,61 @@ function canvasTex(key: string, size: number, paint: (ctx: CanvasRenderingContex
   tex.needsUpdate = true;
   texCache.set(key, tex);
   return tex;
+}
+
+/**
+ * Builds a tangent-space normal map from a per-pixel height function, via central-
+ * difference gradients (wrapping at the edges so it tiles cleanly under RepeatWrapping,
+ * matching the base color map it sits alongside). `heightAt` must be pure/deterministic
+ * in (x, y) — it gets resampled at each pixel's neighbours to estimate the gradient.
+ */
+function heightNormalTex(key: string, size: number, heightAt: (x: number, y: number) => number, strength: number): THREE.CanvasTexture {
+  const cacheKey = `normal:${key}`;
+  const hit = texCache.get(cacheKey);
+  if (hit) return hit;
+  if (typeof document === "undefined") return stubTexture(cacheKey);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return stubTexture(cacheKey);
+
+  const h = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) h[y * size + x] = heightAt(x, y);
+  }
+  const at = (x: number, y: number) => h[((y + size) % size) * size + ((x + size) % size)]!;
+
+  const img = ctx.createImageData(size, size);
+  const n = new THREE.Vector3();
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      n.set(-dx, -dy, 1).normalize();
+      const idx = (y * size + x) * 4;
+      img.data[idx] = Math.round((n.x * 0.5 + 0.5) * 255);
+      img.data[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+      img.data[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+      img.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace; // normal maps are data, not color — must stay linear
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  texCache.set(cacheKey, tex);
+  return tex;
+}
+
+/** Deterministic pseudo-random hash in [0, 1) — a GLSL-noise staple, used where a
+ *  height function needs per-pixel variation without touching `Math.random()` (which
+ *  would break on resample at neighbouring pixels for the gradient above). */
+function hash01(x: number, y: number): number {
+  const v = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return v - Math.floor(v);
 }
 
 /** Clone a cached map and set its UV repeat — never mutate the shared cache entry. */
@@ -127,6 +178,38 @@ export function carpetTexture(tint: string): THREE.CanvasTexture {
   });
 }
 
+/** Woven-weave bump matching `fabricTexture`'s noise, so light raking across a sofa
+ *  cushion catches the same pattern the color map implies instead of looking flat. */
+export function fabricNormalMap(): THREE.CanvasTexture {
+  return heightNormalTex("fabric", 256, (x, y) => (Math.sin(x * 0.37) * Math.cos(y * 0.29) + 1) * 0.5, 1.4);
+}
+
+/** Plank grooves + long grain direction matching `woodTexture`'s plank rows. */
+export function woodNormalMap(): THREE.CanvasTexture {
+  const plank = 42;
+  return heightNormalTex(
+    "wood",
+    512,
+    (x, y) => {
+      const withinPlank = ((y % plank) + plank) % plank;
+      const groove = withinPlank > plank - 3 ? -1 : 0;
+      const grain = Math.sin(x * 0.08 + y * 0.5) * 0.15;
+      return groove + grain;
+    },
+    2.2,
+  );
+}
+
+/** Fine stipple bump matching `plasterTexture`'s speckle density. */
+export function plasterNormalMap(): THREE.CanvasTexture {
+  return heightNormalTex("plaster", 256, (x, y) => hash01(x, y), 0.6);
+}
+
+/** Short fiber-direction bump matching `carpetTexture`'s stroke pattern. */
+export function carpetNormalMap(): THREE.CanvasTexture {
+  return heightNormalTex("carpet", 256, (x, y) => hash01(x * 1.7, y * 2.3), 1.1);
+}
+
 export interface RealismMaterialOpts {
   category: CatalogCategory | "wall" | "floor" | "ceiling";
   color: string;
@@ -146,6 +229,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
   switch (category) {
     case "seating": {
       mat.map = mapWithRepeat(fabricTexture(color), 2.5, 2.5);
+      mat.normalMap = mapWithRepeat(fabricNormalMap(), 2.5, 2.5);
+      mat.normalScale = new THREE.Vector2(0.45, 0.45);
       mat.roughness = 0.78;
       mat.metalness = 0;
       mat.sheen = 1;
@@ -158,6 +243,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     case "storage":
     case "beds": {
       mat.map = mapWithRepeat(woodTexture(color), 2, 1.2);
+      mat.normalMap = mapWithRepeat(woodNormalMap(), 2, 1.2);
+      mat.normalScale = new THREE.Vector2(0.6, 0.6);
       mat.roughness = opts.roughness ?? 0.42;
       mat.metalness = 0.02;
       mat.clearcoat = 0.35;
@@ -177,6 +264,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
         mat.envMapIntensity = 0.5;
       } else {
         mat.map = mapWithRepeat(carpetTexture(color), 3, 3);
+        mat.normalMap = mapWithRepeat(carpetNormalMap(), 3, 3);
+        mat.normalScale = new THREE.Vector2(0.5, 0.5);
         mat.roughness = 0.92;
         mat.metalness = 0;
         mat.envMapIntensity = 0.35;
@@ -192,6 +281,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     }
     case "floor": {
       mat.map = mapWithRepeat(woodTexture(color), 4, 4);
+      mat.normalMap = mapWithRepeat(woodNormalMap(), 4, 4);
+      mat.normalScale = new THREE.Vector2(0.55, 0.55);
       mat.roughness = opts.roughness ?? 0.55;
       mat.metalness = 0.02;
       mat.clearcoat = 0.2;
@@ -201,6 +292,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     }
     case "wall": {
       mat.map = mapWithRepeat(plasterTexture(color), 3, 3);
+      mat.normalMap = mapWithRepeat(plasterNormalMap(), 3, 3);
+      mat.normalScale = new THREE.Vector2(0.3, 0.3);
       mat.roughness = opts.roughness ?? 0.88;
       mat.metalness = 0;
       mat.envMapIntensity = 0.45;
@@ -208,6 +301,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     }
     case "ceiling": {
       mat.map = mapWithRepeat(plasterTexture(color), 2, 2);
+      mat.normalMap = mapWithRepeat(plasterNormalMap(), 2, 2);
+      mat.normalScale = new THREE.Vector2(0.22, 0.22);
       mat.roughness = opts.roughness ?? 0.92;
       mat.metalness = 0;
       mat.envMapIntensity = 0.3;

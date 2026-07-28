@@ -425,11 +425,10 @@ export function Scene3D({ active }: { active: boolean }) {
 
   const day = clamp01(sun.y * 3);
   const elevation = sun.altitude ?? Math.asin(clamp(sun.y, -1, 1));
-  const shadowMap = enhancedRealism
-    ? quality === 'low'
-      ? SHADOW_MAP.med
-      : SHADOW_MAP.high
-    : SHADOW_MAP.low;
+  // All 3 tiers scale shadow-map resolution when Realism is on, so the quality
+  // governor gets a real, graduated fps lever at each step down (not just low vs.
+  // everything-else) — shadow rendering cost scales with map resolution squared.
+  const shadowMap = enhancedRealism ? SHADOW_MAP[quality] : SHADOW_MAP.low;
   const wx = WEATHER[weather];
   const sky = useMemo(() => skyColors(elevation), [elevation]);
 

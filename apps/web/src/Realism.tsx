@@ -7,7 +7,9 @@ import {
   BloomEffect,
   EffectComposer,
   EffectPass,
+  NormalPass,
   RenderPass,
+  SSAOEffect,
 } from 'postprocessing';
 import { createSkyEnvironment, skyColors } from '@interior/renderer';
 import { useUiStore, type Quality } from './uiStore';
@@ -151,14 +153,22 @@ export function RealismEffects({
         />
       </RealismSafeBoundary>
       <RealismSafeBoundary>
-        <LampBloom quality={quality} />
+        <PostEffects quality={quality} />
       </RealismSafeBoundary>
     </>
   );
 }
 
-/** Bloom only the brightest pixels (bulbs / sun disc) — threshold high so walls stay sharp. */
-function LampBloom({ quality }: { quality: Quality }) {
+/**
+ * Bloom (brightest pixels only — bulbs / sun disc, threshold high so walls stay sharp)
+ * plus, at the top quality tier only, screen-space ambient occlusion for contact
+ * grounding in corners and under furniture. SSAO is the priciest thing in this
+ * pipeline — an extra full scene normal-pass, then multi-sample occlusion lookups —
+ * so it's reserved for 'high'; the quality governor already steps back down the
+ * moment fps sags, which pulls this back out automatically. SSAO setup gets its own
+ * inner try/catch so a driver that chokes on it still leaves bloom running.
+ */
+function PostEffects({ quality }: { quality: Quality }) {
   const { gl, scene, camera, size } = useThree();
   const composerRef = useRef<EffectComposer | null>(null);
 
@@ -171,22 +181,41 @@ function LampBloom({ quality }: { quality: Quality }) {
         frameBufferType: THREE.HalfFloatType,
       });
       composer.addPass(new RenderPass(scene, camera));
-      composer.addPass(
-        new EffectPass(
-          camera,
-          new BloomEffect({
-            luminanceThreshold: 0.95,
-            luminanceSmoothing: 0.2,
-            intensity: 0.5,
-            mipmapBlur: true,
-          }),
-        ),
-      );
+
+      const bloom = new BloomEffect({
+        luminanceThreshold: 0.95,
+        luminanceSmoothing: 0.2,
+        intensity: 0.5,
+        mipmapBlur: true,
+      });
+
+      let ssao: SSAOEffect | null = null;
+      if (quality === 'high') {
+        try {
+          const normalPass = new NormalPass(scene, camera, { resolutionScale: 0.75 });
+          ssao = new SSAOEffect(camera, normalPass.texture, {
+            samples: 10,
+            rings: 4,
+            radius: 0.26,
+            intensity: 1.3,
+            luminanceInfluence: 0.65,
+            bias: 0.03,
+            fade: 0.02,
+            resolutionScale: 0.75,
+          });
+          composer.addPass(normalPass);
+        } catch (err) {
+          console.warn('[realism] SSAO init failed; continuing with bloom only', err);
+          ssao = null;
+        }
+      }
+
+      composer.addPass(new EffectPass(camera, ...(ssao ? [ssao, bloom] : [bloom])));
       composer.setSize(size.width, size.height);
       composerRef.current = composer;
       gl.toneMapping = THREE.NoToneMapping;
     } catch (err) {
-      console.warn('[realism] bloom init failed', err);
+      console.warn('[realism] post-processing init failed', err);
       composer?.dispose();
       composerRef.current = null;
       gl.toneMapping = prevTone;

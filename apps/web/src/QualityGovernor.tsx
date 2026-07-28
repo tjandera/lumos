@@ -10,7 +10,7 @@ const TIERS: Quality[] = ['low', 'med', 'high'];
  * Holds actual frame rate inside a roughly 30–60fps band by nudging the quality tier
  * (shadow-map resolution, AO sample count, contact-shadow resolution — see Scene3D.tsx
  * and Realism.tsx) up or down, instead of everyone getting the same fixed preset
- * regardless of their hardware. Pure decision logic lives in qualityGovernor.ts; this
+ * regardless of their hardware. Pure decision logic lives in qualityAdaptation.ts; this
  * just wires it to the real fps sample (`usePerf`, updated every ~250ms by PerfProbe)
  * and the real quality setting, and surfaces a brief, dismissable notice so a change
  * in how the room looks is never silent/unexplained.
