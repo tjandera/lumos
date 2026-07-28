@@ -97,6 +97,11 @@ interface UiStore {
   gizmoMode: 'translate' | 'rotate';
   setGizmoMode: (m: 'translate' | 'rotate') => void;
 
+  // --- Map location picker ---
+  locationOpen: boolean;
+  toggleLocation: () => void;
+  setLocationOpen: (v: boolean) => void;
+
   // --- Photo-based room import ---
   importOpen: boolean;
   toggleImport: () => void;
@@ -193,6 +198,10 @@ export const useUiStore = create<UiStore>()((set) => ({
   setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
   gizmoMode: 'translate',
   setGizmoMode: (gizmoMode) => set({ gizmoMode }),
+
+  locationOpen: false,
+  toggleLocation: () => set((s) => ({ locationOpen: !s.locationOpen })),
+  setLocationOpen: (locationOpen) => set({ locationOpen }),
 
   importOpen: false,
   toggleImport: () => set((s) => ({ importOpen: !s.importOpen })),

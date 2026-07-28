@@ -20,6 +20,7 @@ import { RoomStatus } from './RoomStatus';
 import { WelcomeTips } from './WelcomeTips';
 import { DesignTransfer } from './DesignTransfer';
 import { PhotoResultModal } from './PhotoResultModal';
+import { LocationPicker } from './location/LocationPicker';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -47,6 +48,7 @@ export default function App() {
       {roomPhotoEnabled && <ImportSummaryBanner />}
       <WelcomeTips />
       <PhotoResultModal />
+      <LocationPicker />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );

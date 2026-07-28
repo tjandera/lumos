@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { X, MapPin, Sun as SunIcon, Moon, Play, Pause, Check, Camera } from 'lucide-react';
+import { X, MapPin, Map, Sun as SunIcon, Moon, Play, Pause, Check, Camera } from 'lucide-react';
 import {
   daylightTimes,
   kelvinToRgb,
@@ -214,6 +214,7 @@ export function LightingPanel() {
   const times = daylightTimes(site.lat, site.lng, dateObj);
 
   const setCity = (lat: number, lng: number) => edit((d) => { d.site.lat = lat; d.site.lng = lng; });
+  const openLocation = () => useUiStore.getState().setLocationOpen(true);
   const setOrientation = (deg: number) => edit((d) => { d.site.trueNorthOffsetDeg = ((deg % 360) + 360) % 360; });
   const setDate = (iso: string) => {
     if (!iso) return;
@@ -396,6 +397,13 @@ export function LightingPanel() {
                 <MapPin size={12} /> Use photo's location ({photoGps.lat.toFixed(2)}, {photoGps.lng.toFixed(2)})
               </button>
             )}
+            <button
+              className="mb-1.5 inline-flex w-full items-center justify-center gap-1 rounded bg-sky-500/20 px-2 py-1.5 text-[11px] text-sky-200 hover:bg-sky-500/30"
+              onClick={openLocation}
+              title="Find your building on a map and turn the room to match it"
+            >
+              <Map size={12} /> Choose on map
+            </button>
             <div className="flex flex-wrap gap-1">
               {CITIES.map((c) => (
                 <button key={c.name} className={chip(false)} onClick={() => setCity(c.lat, c.lng)}>
