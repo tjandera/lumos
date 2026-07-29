@@ -63,14 +63,30 @@ export function wallLength(wall: Wall): number {
  * loop still yields its distinct corners rather than throwing.
  */
 export function roomCorners(room: Room): Vec2[] {
-  const corners: Vec2[] = [];
+  const walls = room.walls ?? [];
+  if (walls.length === 0) return [];
   const same = (a: Vec2, b: Vec2) => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.z - b.z) < 1e-6;
-  for (const w of room.walls) {
-    if (!corners.length || !same(corners[corners.length - 1]!, w.start)) corners.push(w.start);
-    if (!same(corners[corners.length - 1]!, w.end)) corners.push(w.end);
+
+  // Walls are an unordered *set* of segments — `rectWalls` emits them N, S, W, E, which
+  // is not a path around the room. Reading them in array order therefore produced a
+  // self-intersecting bowtie whose shoelace area cancelled to zero, so every caller
+  // (AI floor-area checks, daylight aperture) saw a 0 m² room. Chain them end-to-end
+  // instead, so the polygon is a real perimeter no matter what order they're stored in.
+  const remaining = walls.slice(1);
+  const first = walls[0]!;
+  const corners: Vec2[] = [first.start];
+  let tip = first.end;
+
+  while (remaining.length > 0) {
+    if (same(tip, corners[0]!)) break; // closed the loop
+    corners.push(tip);
+    const next = remaining.findIndex((w) => same(w.start, tip) || same(w.end, tip));
+    if (next === -1) break; // walls don't form a connected chain — emit what we have
+    const [w] = remaining.splice(next, 1);
+    tip = same(w!.start, tip) ? w!.end : w!.start;
   }
-  // Drop the duplicate closing corner if the loop came back to where it started.
-  if (corners.length > 1 && same(corners[0]!, corners[corners.length - 1]!)) corners.pop();
+  // The final tip closes the loop (drop it) or is a genuine open end (keep it).
+  if (!same(tip, corners[0]!)) corners.push(tip);
   return corners;
 }
 
