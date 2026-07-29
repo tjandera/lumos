@@ -366,6 +366,29 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
  * Does NOT dispose the previous materials — Kenney GLBs from `useGLTF` share a cached
  * material graph; disposing them would break every other instance / remount.
  */
+/**
+ * True when a mesh already carries maps authored for that specific model.
+ *
+ * The Kenney models ship flat untextured materials, so synthesising one is a clear
+ * upgrade. The Poly Haven models ship a full authored PBR set fitted to their own UV
+ * layout — overwriting that with a generic tiling material would replace better data
+ * with worse, and would smear, because their UVs are a bespoke unwrap rather than the
+ * box projection our generic path assumes.
+ */
+export function hasAuthoredMaps(material: THREE.Material | THREE.Material[]): boolean {
+  const list = Array.isArray(material) ? material : [material];
+  return list.some((m) => {
+    const std = m as THREE.MeshStandardMaterial;
+    return Boolean(std && (std.map || std.normalMap || std.roughnessMap));
+  });
+}
+
+/**
+ * Give every mesh under `root` a realism material — unless the model already has its
+ * own authored maps, in which case only shadow flags are set and the authored look is
+ * left intact. `family` (a user's explicit "this is leather") still overrides, because
+ * that's a deliberate choice rather than a default.
+ */
 export function applyRealismMaterials(
   root: THREE.Object3D,
   category: CatalogCategory,
@@ -375,10 +398,12 @@ export function applyRealismMaterials(
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
-    // Furniture meshes get box-projected UVs (see boxUVs.ts / FurnitureModel), so the
-    // material must not apply a second repeat on top of them.
-    mesh.material = createRealismMaterial({ category, color, boxUV: true, family });
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Respect a model's own textures unless the user explicitly picked a material.
+    if (!family && mesh.material && hasAuthoredMaps(mesh.material)) return;
+    // Otherwise: synthesised material. Furniture meshes get box-projected UVs (see
+    // boxUVs.ts / FurnitureModel), so this must not apply a second repeat on top.
+    mesh.material = createRealismMaterial({ category, color, boxUV: true, family });
   });
 }

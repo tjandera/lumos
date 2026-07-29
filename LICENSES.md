@@ -220,3 +220,49 @@ public domain, no attribution required. Recorded here for provenance.
 
 `apps/web/public/textures/manifest.json` records the same mapping in a
 machine-readable form, so the set can be re-fetched or refreshed later.
+
+## Poly Haven furniture + plant models (`apps/web/public/models/ph/`)
+
+Sixteen CC0 models covering 18 of the 24 catalog items, replacing the Kenney
+low-poly primitives for everything that had a good match. Sourced from
+**Poly Haven** (https://polyhaven.com) under **CC0 1.0 Universal** — public
+domain, no attribution required. Recorded here for provenance and so the set
+can be regenerated.
+
+Reproduce the whole set with `python3 scripts/fetch_models.py`, which
+downloads the 1k glTF, downscales textures to 512, and packs each asset into
+a single Draco-compressed `.glb`. That pipeline is what takes the set from
+**30.4 MB to 2.8 MB** — the scanned plants alone are ~5 MB of raw geometry
+each, because their leaves are real cut geometry rather than alpha cards.
+
+| Catalog item(s) | Poly Haven asset |
+| --- | --- |
+| 2-Seat Sofa, 3-Seat Sofa | Sofa_01 |
+| Armchair | ArmChair_01 |
+| Lounge Chair | mid_century_lounge_chair |
+| Bench | painted_wooden_bench |
+| Desk Chair | dining_chair_02 |
+| Bar Stool | bar_chair_round_01 |
+| Coffee Table | modern_coffee_table_01 |
+| Round Table | round_wooden_table_01 |
+| Dining Table | dining_table |
+| Side Table | side_table_01 |
+| Desk, Corner Desk | metal_office_desk |
+| Bookshelf | wooden_bookshelf_worn |
+| Wardrobe | painted_wooden_cabinet |
+| TV Stand | modern_wooden_cabinet |
+| Potted Plant | potted_plant_01 |
+| Small Plant | potted_plant_02 |
+
+Still on the original Kenney models (no suitable CC0 match): Double Bed,
+Single Bed, Floor Lamp, Rug, Round Rug, Coat Rack. Rugs are flat planes
+where the surface texture matters far more than the geometry, so they lose
+little.
+
+## Draco decoder (`apps/web/public/draco/`)
+
+Decoder binaries vendored from three.js's own `examples/jsm/libs/draco/gltf`
+(three.js is MIT; Draco itself is Apache-2.0). Self-hosted rather than using
+drei's default Google CDN so the models keep loading offline, behind a strict
+CSP, and without a third-party dependency. The encoder is deliberately not
+included — nothing at runtime encodes.

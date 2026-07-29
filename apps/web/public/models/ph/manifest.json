@@ -1,0 +1,23 @@
+{
+  "mapping": {
+    "armchair": "ArmChair_01",
+    "bar-stool": "bar_chair_round_01",
+    "bench": "painted_wooden_bench",
+    "bookshelf": "wooden_bookshelf_worn",
+    "coffee-table": "modern_coffee_table_01",
+    "corner-desk": "metal_office_desk",
+    "desk": "metal_office_desk",
+    "desk-chair": "dining_chair_02",
+    "dining-table": "dining_table",
+    "lounge-chair": "mid_century_lounge_chair",
+    "plant": "potted_plant_01",
+    "plant-small": "potted_plant_02",
+    "round-table": "round_wooden_table_01",
+    "side-table": "side_table_01",
+    "sofa-2seat": "Sofa_01",
+    "sofa-3seat": "Sofa_01",
+    "tv-stand": "modern_wooden_cabinet",
+    "wardrobe": "painted_wooden_cabinet"
+  },
+  "source": "polyhaven.com (CC0)"
+}

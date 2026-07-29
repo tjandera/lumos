@@ -18,7 +18,7 @@ import {
 } from '@interior/core';
 import { getCatalogItem, DEFAULT_ITEM, type CatalogItem, type CatalogCategory } from '@interior/catalog';
 import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
-import { applyRealismMaterials, createRealismMaterial, plasterTexture } from './realismMaterials.js';
+import { applyRealismMaterials, createRealismMaterial, hasAuthoredMaps, plasterTexture } from './realismMaterials.js';
 import { applyBoxUVs, tilesPerMeterFor } from './boxUVs.js';
 import type { MaterialFamily } from './pbrTextures.js';
 
@@ -405,6 +405,25 @@ function HighlightBox({ cat, color = '#38bdf8', opacity = 0.16 }: { cat: Catalog
   );
 }
 
+/** True if any mesh in the subtree carries maps authored for this specific model. */
+function hasAnyAuthoredMaps(root: THREE.Object3D): boolean {
+  let found = false;
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!found && mesh.isMesh && mesh.material && hasAuthoredMaps(mesh.material)) found = true;
+  });
+  return found;
+}
+
+/**
+ * Draco decoder served from our own origin rather than drei's default Google CDN.
+ * The Poly Haven models are Draco-compressed (it's what takes the set from 30 MB to
+ * under 3 MB), so the decoder is load-bearing — it shouldn't depend on a third-party
+ * CDN being reachable, and self-hosting keeps the app working offline and behind a
+ * strict CSP. Files are vendored from three's own examples into public/draco.
+ */
+const DRACO_PATH = '/draco/';
+
 /** Loads a GLB, recenters it to the floor, and uniformly scales it to the catalog width.
  * When Realism is on, Kenney's flat materials are replaced with fabric/wood/carpet PBR. */
 function FurnitureModel({
@@ -422,7 +441,7 @@ function FurnitureModel({
   realism?: boolean;
   family?: MaterialFamily;
 }) {
-  const { scene } = useGLTF(url);
+  const { scene } = useGLTF(url, DRACO_PATH);
   const object = useMemo(() => {
     const cloned = scene.clone(true);
     cloned.traverse((o: THREE.Object3D) => {
@@ -437,11 +456,15 @@ function FurnitureModel({
     const center = box.getCenter(new THREE.Vector3());
     const s = size.x > 1e-4 ? targetWidth / size.x : 1;
     if (realism) {
-      // Re-project UVs in real-world metres before texturing: the authored UVs span
-      // ±15 to ±74 and differ per model, which would tile any detail texture into
-      // static at a different density on every item. `s` converts the model's own
-      // units to metres, so a stool and a sofa end up with the same weave size.
-      applyBoxUVs(cloned, s, tilesPerMeterFor(category));
+      // Models that ship their own PBR maps (the Poly Haven set) are textured against a
+      // bespoke unwrap — re-projecting their UVs would smear those maps across the mesh.
+      // Only the untextured low-poly models get box projection, which is what makes a
+      // generic tiling material sit at a believable real-world scale on them. A user's
+      // explicit material choice still overrides, and needs the projection to look right.
+      const authored = !family && hasAnyAuthoredMaps(cloned);
+      if (!authored) {
+        applyBoxUVs(cloned, s, tilesPerMeterFor(category));
+      }
       applyRealismMaterials(cloned, category, color, family);
     }
     cloned.position.set(-center.x, -box.min.y, -center.z); // center x/z, base to y = 0
@@ -524,7 +547,7 @@ function FixtureBulb({ light, lit }: { light: LightInstance; lit: boolean }) {
 
 /** The real fixture GLB for this mount kind, tinted/glowing to match the bulb's state. */
 function FixtureModel({ kind, color, lit, realism }: { kind: FixtureKind; color: string; lit: boolean; realism?: boolean }) {
-  const { scene } = useGLTF(FIXTURE_MODELS[kind]);
+  const { scene } = useGLTF(FIXTURE_MODELS[kind], DRACO_PATH);
   const object = useMemo(() => {
     const cloned = scene.clone(true);
     const box = new THREE.Box3().setFromObject(cloned);
