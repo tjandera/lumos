@@ -1,4 +1,4 @@
-import { RefreshCw, Sun, Palette, Camera, Move, RotateCw, Sparkles } from 'lucide-react';
+import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -22,6 +22,7 @@ import { DesignTransfer } from './DesignTransfer';
 import { PhotoResultModal } from './PhotoResultModal';
 import { LocationPicker } from './location/LocationPicker';
 import { DarkRoomNotice } from './DarkRoomNotice';
+import { LightStudyPanel } from './LightStudyPanel';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -51,6 +52,7 @@ export default function App() {
       <WelcomeTips />
       <PhotoResultModal />
       <LocationPicker />
+      <LightStudyPanel />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );
@@ -76,6 +78,8 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
   const toggleEnhancedRealism = useUiStore((s) => s.toggleEnhancedRealism);
   const photoBusy = useUiStore((s) => s.photoBusy);
   const requestPhoto = useUiStore((s) => s.requestPhoto);
+  const lightStudyOpen = useUiStore((s) => s.lightStudyOpen);
+  const toggleLightStudy = useUiStore((s) => s.toggleLightStudy);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -152,6 +156,15 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
             title="One-shot high-quality capture, every setting maxed"
           >
             <Camera size={13} /> {photoBusy ? 'Rendering…' : 'Capture'}
+          </button>
+          <button
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+              lightStudyOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
+            }`}
+            onClick={toggleLightStudy}
+            title="Render one frame per hour and scrub the light across a whole day"
+          >
+            <Clock size={13} /> Day
           </button>
         </>
       )}

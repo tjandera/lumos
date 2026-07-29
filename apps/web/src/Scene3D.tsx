@@ -19,6 +19,7 @@ import { PerfProbe } from './PerfProbe';
 import { SceneEnvironment, RealismEffects, PhotoCapture, WindowFillLights } from './Realism';
 import { FurnitureGizmo } from './FurnitureGizmo';
 import { FlyControls } from './FlyControls';
+import { LightStudyCapture } from './LightStudy';
 import { collidingFurnitureIds } from './collisionUi';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -511,7 +512,16 @@ export function Scene3D({ active }: { active: boolean }) {
       frameloop={active ? 'always' : 'never'}
       shadows="soft"
       camera={{ position: [cam.position.x, cam.position.y, cam.position.z], fov: 50 }}
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, powerPreference: 'high-performance' }}
+      gl={{
+        antialias: true,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        powerPreference: 'high-performance',
+        // Required by every feature that reads the canvas back — the Capture button and
+        // the day-cycle light study both call `toDataURL`. Without it the browser is
+        // free to discard the drawing buffer after compositing, and the read returns a
+        // fully black image (verified: captured frames had max luminance 0).
+        preserveDrawingBuffer: true,
+      }}
       onPointerMissed={() => selectFurniture(null)}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
@@ -528,6 +538,7 @@ export function Scene3D({ active }: { active: boolean }) {
       {sunMode === 'auto' && <SunAnimator enabled={playing} />}
       <SceneEnvironment intensity={envIntensity} elevationRad={elevation} realism={enhancedRealism} />
       <PhotoCapture active={active} />
+      <LightStudyCapture active={active} />
 
       {/* Keep drei Sky only when Realism is off — Realism uses the matching sky IBL as backdrop. */}
       {!enhancedRealism && (

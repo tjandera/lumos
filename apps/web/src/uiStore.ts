@@ -5,6 +5,14 @@ export type SunMode = 'auto' | 'manual';
 export type Quality = 'low' | 'med' | 'high';
 export type Weather = 'clear' | 'hazy' | 'overcast' | 'golden';
 
+/** One captured render from the day-cycle light study. */
+export interface LightStudyFrame {
+  /** Minutes past local midnight this frame was rendered at. */
+  minutes: number;
+  /** JPEG data URL of the canvas at that instant. */
+  dataUrl: string;
+}
+
 interface UiStore {
   /** Which editor is showing: the 3D scene or the 2D floor plan. */
   mode: ViewMode;
@@ -77,6 +85,27 @@ interface UiStore {
   photoResult: string | null;
   requestPhoto: () => void;
   finishPhoto: (dataUrl: string) => void;
+
+  // --- Light study: a scrubbable stack of real renders across one day ---
+  lightStudyOpen: boolean;
+  toggleLightStudy: () => void;
+  /** Set to start a capture run; LightStudyCapture clears it once it takes over. */
+  lightStudyRequested: boolean;
+  lightStudyBusy: boolean;
+  /** 0..1 while capturing, for the progress readout. */
+  lightStudyProgress: number;
+  lightStudyFrames: LightStudyFrame[];
+  /** Index into `lightStudyFrames` the slider is currently showing. */
+  lightStudyIndex: number;
+  requestLightStudy: () => void;
+  setLightStudyProgress: (p: number) => void;
+  finishLightStudy: (frames: LightStudyFrame[]) => void;
+  setLightStudyIndex: (i: number) => void;
+  /** Auto-advancing playback of the captured day (panel-only; unrelated to the live
+   *  scene's own sun animation). */
+  lightStudyPlaying: boolean;
+  setLightStudyPlaying: (v: boolean) => void;
+  clearLightStudy: () => void;
   clearPhotoResult: () => void;
 
   // --- Phase 13: selected light fixture (Plan-mode editing) ---
@@ -186,6 +215,32 @@ export const useUiStore = create<UiStore>()((set) => ({
   photoResult: null,
   requestPhoto: () => set({ photoRequested: true, photoBusy: true, photoResult: null }),
   finishPhoto: (photoResult) => set({ photoRequested: false, photoBusy: false, photoResult }),
+
+  lightStudyOpen: false,
+  toggleLightStudy: () => set((s) => ({ lightStudyOpen: !s.lightStudyOpen })),
+  lightStudyRequested: false,
+  lightStudyBusy: false,
+  lightStudyProgress: 0,
+  lightStudyFrames: [],
+  lightStudyIndex: 0,
+  requestLightStudy: () =>
+    set({ lightStudyRequested: true, lightStudyBusy: true, lightStudyProgress: 0, lightStudyFrames: [] }),
+  setLightStudyProgress: (lightStudyProgress) => set({ lightStudyProgress }),
+  finishLightStudy: (lightStudyFrames) =>
+    set({
+      lightStudyRequested: false,
+      lightStudyBusy: false,
+      lightStudyProgress: 1,
+      lightStudyFrames,
+      // Open on the middle of the day rather than midnight, which is the frame most
+      // likely to actually show the room.
+      lightStudyIndex: Math.floor(lightStudyFrames.length / 2),
+    }),
+  setLightStudyIndex: (lightStudyIndex) => set({ lightStudyIndex }),
+  lightStudyPlaying: false,
+  setLightStudyPlaying: (lightStudyPlaying) => set({ lightStudyPlaying }),
+  clearLightStudy: () =>
+    set({ lightStudyFrames: [], lightStudyIndex: 0, lightStudyProgress: 0, lightStudyBusy: false, lightStudyRequested: false }),
   clearPhotoResult: () => set({ photoResult: null }),
 
   selectedLightId: null,
