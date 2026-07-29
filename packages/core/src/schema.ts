@@ -5,7 +5,7 @@ import { z } from 'zod';
  * migrations.ts keyed by the version it upgrades FROM. Saved and shared designs
  * are validated + migrated on load, so they survive schema evolution.
  */
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 const Vec2Schema = z.object({ x: z.number(), z: z.number() }); // ground-plane point (meters)
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
@@ -73,6 +73,25 @@ export const RoomSchema = z.object({
   materials: RoomMaterialsSchema,
 });
 
+/**
+ * Which physical material a surface is made of. Lives here rather than in the renderer
+ * because a user's choice of "this sofa is leather, not wool" is part of the design and
+ * has to survive save/load/share. The renderer maps each of these to a texture set (see
+ * pbrTextures.ts); core stays free of three.js and only owns the vocabulary.
+ */
+export const MaterialFamilySchema = z.enum([
+  'wood-oak',
+  'wood-walnut',
+  'wood-floor',
+  'fabric-wool',
+  'fabric-linen',
+  'leather',
+  'carpet',
+  'plaster',
+  'marble',
+  'metal',
+]);
+
 export const FurnitureInstanceSchema = z.object({
   id: z.string(),
   catalogId: z.string(),
@@ -81,6 +100,8 @@ export const FurnitureInstanceSchema = z.object({
   scale: z.number().positive().default(1),
   /** Optional real-world size override. Absent = use the catalog item's dimensions. */
   dimensions: Dimensions3DSchema.optional(),
+  /** Per-item material override. Absent = the category's default material. */
+  materialFamily: MaterialFamilySchema.optional(),
 });
 
 /** Which real fixture this light is + how it mounts (ceiling/wall vs floor/table). */
@@ -170,6 +191,7 @@ export type FurnitureInstance = z.infer<typeof FurnitureInstanceSchema>;
 export type FixtureKind = z.infer<typeof FixtureKindSchema>;
 export type LightInstance = z.infer<typeof LightInstanceSchema>;
 export type LightingScene = z.infer<typeof LightingSceneSchema>;
+export type MaterialFamily = z.infer<typeof MaterialFamilySchema>;
 export type Site = z.infer<typeof SiteSchema>;
 export type SceneMeta = z.infer<typeof SceneMetaSchema>;
 export type Dimensions3D = z.infer<typeof Dimensions3DSchema>;

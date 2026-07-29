@@ -12,18 +12,12 @@
  */
 
 import * as THREE from 'three';
+import type { MaterialFamily } from '@interior/core';
 
-export type MaterialFamily =
-  | 'wood-oak'
-  | 'wood-walnut'
-  | 'wood-floor'
-  | 'fabric-wool'
-  | 'fabric-linen'
-  | 'leather'
-  | 'carpet'
-  | 'plaster'
-  | 'marble'
-  | 'metal';
+// The vocabulary lives in the document schema (a user's material choice has to be
+// saved and shared), so it's imported rather than redeclared here — the renderer only
+// owns the mapping from a family to its texture files.
+export type { MaterialFamily } from '@interior/core';
 
 export const MATERIAL_FAMILIES: MaterialFamily[] = [
   'wood-oak',

@@ -1,4 +1,4 @@
-import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument } from './schema.js';
+import { DEFAULT_WALL_MATERIAL, DEFAULT_FLOOR_MATERIAL, DEFAULT_CEILING_MATERIAL, type SceneDocument, CURRENT_SCHEMA_VERSION } from './schema.js';
 import { rectWalls } from './geometry.js';
 import { FIXTURE_MOUNT_HEIGHT } from './fixtures.js';
 import { kelvinToRgb } from './color.js';
@@ -11,7 +11,7 @@ import { kelvinToRgb } from './color.js';
  * rugs sit *under* other pieces and are excluded from collision checks in the UI.
  */
 export const sampleScene: SceneDocument = {
-  schemaVersion: 6,
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   meta: {
     id: 'marina-studio',
     name: 'Marina Studio',

@@ -42,6 +42,57 @@ describe('migrations', () => {
     expect('location' in migrated).toBe(false);
   });
 
+  it('carries v6 furniture forward to v7 without inventing a material', () => {
+    // v7 adds an optional per-item `materialFamily`. Absent must keep meaning "use the
+    // category default", so an existing design looks identical after upgrading.
+    const v6 = {
+      ...sampleScene,
+      schemaVersion: 6,
+      furniture: [
+        { id: 'f1', catalogId: 'sofa-2seat', position: { x: 0, y: 0, z: 0 }, rotationY: 0, scale: 1 },
+      ],
+    };
+    const migrated = migrateSceneDocument(v6);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.furniture[0]!.materialFamily).toBeUndefined();
+    expect(migrated.furniture[0]!.catalogId).toBe('sofa-2seat');
+  });
+
+  it('preserves a v7 per-item material override through a round trip', () => {
+    const withMaterial = {
+      ...sampleScene,
+      furniture: [
+        {
+          id: 'f1',
+          catalogId: 'sofa-2seat',
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 0,
+          scale: 1,
+          materialFamily: 'leather' as const,
+        },
+      ],
+    };
+    const migrated = migrateSceneDocument(JSON.parse(JSON.stringify(withMaterial)));
+    expect(migrated.furniture[0]!.materialFamily).toBe('leather');
+  });
+
+  it('rejects a material family that is not in the vocabulary', () => {
+    const bad = {
+      ...sampleScene,
+      furniture: [
+        {
+          id: 'f1',
+          catalogId: 'sofa-2seat',
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 0,
+          scale: 1,
+          materialFamily: 'unobtainium',
+        },
+      ],
+    };
+    expect(() => migrateSceneDocument(bad)).toThrow();
+  });
+
   it('upgrades a v2 document, defaulting fixtures to a table lamp and adding lightingScenes', () => {
     const legacyV2 = {
       schemaVersion: 2,

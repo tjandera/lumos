@@ -366,13 +366,18 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
  * Does NOT dispose the previous materials — Kenney GLBs from `useGLTF` share a cached
  * material graph; disposing them would break every other instance / remount.
  */
-export function applyRealismMaterials(root: THREE.Object3D, category: CatalogCategory, color: string): void {
+export function applyRealismMaterials(
+  root: THREE.Object3D,
+  category: CatalogCategory,
+  color: string,
+  family?: MaterialFamily,
+): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     // Furniture meshes get box-projected UVs (see boxUVs.ts / FurnitureModel), so the
     // material must not apply a second repeat on top of them.
-    mesh.material = createRealismMaterial({ category, color, boxUV: true });
+    mesh.material = createRealismMaterial({ category, color, boxUV: true, family });
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   });

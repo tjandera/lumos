@@ -20,6 +20,7 @@ import { getCatalogItem, DEFAULT_ITEM, type CatalogItem, type CatalogCategory } 
 import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
 import { applyRealismMaterials, createRealismMaterial, plasterTexture } from './realismMaterials.js';
 import { applyBoxUVs, tilesPerMeterFor } from './boxUVs.js';
+import type { MaterialFamily } from './pbrTextures.js';
 
 /**
  * Renders a SceneDocument as 3D. Walls are extruded from their elevation profile with
@@ -352,17 +353,18 @@ function FurnitureBox({
       }}
     >
       {cat.model ? (
-        <Suspense fallback={<PlaceholderBox cat={cat} realism={realism} />}>
+        <Suspense fallback={<PlaceholderBox cat={cat} realism={realism} family={item.materialFamily} />}>
           <FurnitureModel
             url={cat.model}
             targetWidth={cat.width}
             category={cat.category}
             color={cat.color}
             realism={realism}
+            family={item.materialFamily}
           />
         </Suspense>
       ) : (
-        <PlaceholderBox cat={cat} realism={realism} />
+        <PlaceholderBox cat={cat} realism={realism} family={item.materialFamily} />
       )}
       {colliding && <HighlightBox cat={cat} color="#ef4444" opacity={0.32} />}
       {selected && !colliding && <HighlightBox cat={cat} />}
@@ -371,10 +373,10 @@ function FurnitureBox({
 }
 
 /** Colored box — the loading/fallback state and what non-model catalog items use. */
-function PlaceholderBox({ cat, realism }: { cat: CatalogItem; realism?: boolean }) {
+function PlaceholderBox({ cat, realism, family }: { cat: CatalogItem; realism?: boolean; family?: MaterialFamily }) {
   const realismMat = useMemo(
-    () => (realism ? createRealismMaterial({ category: cat.category, color: cat.color }) : null),
-    [realism, cat.category, cat.color],
+    () => (realism ? createRealismMaterial({ category: cat.category, color: cat.color, family }) : null),
+    [realism, cat.category, cat.color, family],
   );
   useEffect(() => () => realismMat?.dispose(), [realismMat]);
 
@@ -411,12 +413,14 @@ function FurnitureModel({
   category,
   color,
   realism,
+  family,
 }: {
   url: string;
   targetWidth: number;
   category: CatalogCategory;
   color: string;
   realism?: boolean;
+  family?: MaterialFamily;
 }) {
   const { scene } = useGLTF(url);
   const object = useMemo(() => {
@@ -438,14 +442,14 @@ function FurnitureModel({
       // static at a different density on every item. `s` converts the model's own
       // units to metres, so a stool and a sofa end up with the same weave size.
       applyBoxUVs(cloned, s, tilesPerMeterFor(category));
-      applyRealismMaterials(cloned, category, color);
+      applyRealismMaterials(cloned, category, color, family);
     }
     cloned.position.set(-center.x, -box.min.y, -center.z); // center x/z, base to y = 0
     const wrapper = new THREE.Group();
     wrapper.add(cloned);
     wrapper.scale.setScalar(s);
     return wrapper;
-  }, [scene, targetWidth, category, color, realism]);
+  }, [scene, targetWidth, category, color, realism, family]);
   return <primitive object={object} />;
 }
 

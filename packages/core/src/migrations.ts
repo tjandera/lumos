@@ -93,6 +93,12 @@ const migrators: Record<number, Migrator> = {
       },
     };
   },
+
+  // v6 -> v7: furniture gains an optional `materialFamily` override, so a user can say
+  // a given sofa is leather rather than the wool its category defaults to. Absent means
+  // "use the category default", which is exactly what every v6 item wants — so there is
+  // nothing to backfill and the bump is the whole migration.
+  6: (doc) => ({ ...doc, schemaVersion: 7 }),
 };
 
 function randomId(): string {
