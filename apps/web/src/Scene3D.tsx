@@ -9,6 +9,7 @@ import {
   sunPath,
   illuminanceAt,
   effectiveFixtureIntensity,
+  documentDaylightAperture,
   type SunPathPoint,
   type LampSample,
 } from '@interior/core';
@@ -432,6 +433,23 @@ export function Scene3D({ active }: { active: boolean }) {
   const wx = WEATHER[weather];
   const sky = useMemo(() => skyColors(elevation), [elevation]);
 
+  /**
+   * How much daylight this plan can physically admit (see `daylightAperture` in core).
+   * Direct sun is already occluded correctly by the wall/ceiling geometry via shadow
+   * mapping — what used to leak into a windowless box was the *ambient* side of the
+   * rig: image-based lighting, hemisphere and ambient lights all apply everywhere
+   * regardless of enclosure. Scaling those by the room's aperture is what makes a
+   * sealed room actually dark, and leaves lamps as its only light source.
+   */
+  const aperture = useMemo(
+    () => documentDaylightAperture(doc.rooms, doc.openings ?? []),
+    [doc.rooms, doc.openings],
+  );
+  // A small floor rather than absolute zero: real sealed rooms leak a little light
+  // around doors, and a literally black frame reads as a broken renderer rather than
+  // as an unlit room. Lamps are what should light this space, and they still do.
+  const daylightFactor = 0.06 + 0.94 * aperture.reach;
+
   // What's actually emitting right now — matches the renderer's on/off + auto-ramp
   // logic, so the lux heatmap reflects what you actually see, not the raw settings.
   const litLampSamples = useMemo(
@@ -471,9 +489,10 @@ export function Scene3D({ active }: { active: boolean }) {
     exposure * (enhancedRealism ? 0.95 + (1 - day) * 0.22 : 1.05);
 
   const allWalls = useMemo(() => doc.rooms.flatMap((r) => r.walls), [doc.rooms]);
-  const envIntensity = enhancedRealism
-    ? Math.max(0.55, sky.envIntensity * (1.05 + day * 0.45) * wx.ambientMul)
-    : 0.28 + day * 0.12;
+  const envIntensity =
+    (enhancedRealism
+      ? Math.max(0.55, sky.envIntensity * (1.05 + day * 0.45) * wx.ambientMul)
+      : 0.28 + day * 0.12) * daylightFactor;
 
   const floorCenter = useMemo(
     () => ({
@@ -516,24 +535,24 @@ export function Scene3D({ active }: { active: boolean }) {
       )}
       <hemisphereLight
         intensity={
-          enhancedRealism
+          (enhancedRealism
             ? sky.hemiIntensity * wx.ambientMul * 1.35
-            : 0.35 * wx.ambientMul
+            : 0.35 * wx.ambientMul) * daylightFactor
         }
         color={enhancedRealism ? sky.horizon : '#c8d4e8'}
         groundColor={enhancedRealism ? sky.ground : '#5a554c'}
       />
       <ambientLight
         intensity={
-          enhancedRealism
+          (enhancedRealism
             ? 0.03 + day * 0.06 * wx.ambientMul
-            : 0.22 + day * 0.15 * wx.ambientMul
+            : 0.22 + day * 0.15 * wx.ambientMul) * daylightFactor
         }
       />
       {/* Soft bounce from the floor — fills shadow side without flattening contrast. */}
       {enhancedRealism && (
         <hemisphereLight
-          intensity={0.18 + day * 0.28}
+          intensity={(0.18 + day * 0.28) * daylightFactor}
           color="#fff6e8"
           groundColor={doc.rooms[0]?.materials.floor.color ?? '#b9a884'}
         />

@@ -16,3 +16,4 @@ export * from './document.js';
 export * from './sample.js';
 export * from './roomPhoto.js';
 export * from './privacy.js';
+export * from './daylight.js';

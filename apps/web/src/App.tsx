@@ -21,6 +21,7 @@ import { WelcomeTips } from './WelcomeTips';
 import { DesignTransfer } from './DesignTransfer';
 import { PhotoResultModal } from './PhotoResultModal';
 import { LocationPicker } from './location/LocationPicker';
+import { DarkRoomNotice } from './DarkRoomNotice';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -36,6 +37,7 @@ export default function App() {
       {mode === 'plan' && <PlanEditor />}
       {mode === '3d' && <PerfHud />}
       <QualityGovernor />
+      <DarkRoomNotice />
       <RoomStatus />
       {mode === '3d' && <TimeOfDayBar />}
       {mode === '3d' && <SelectionStatus />}
