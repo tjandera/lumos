@@ -364,6 +364,7 @@ export function Scene3D({ active }: { active: boolean }) {
   const luxOn = useUiStore((s) => s.luxOn);
   const setAvgLux = useUiStore((s) => s.setAvgLux);
   const enhancedRealism = useUiStore((s) => s.enhancedRealism);
+  const photoBusy = useUiStore((s) => s.photoBusy);
   const cam = doc.view?.camera ?? { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } };
 
   const collidingIds = useMemo(() => collidingFurnitureIds(doc), [doc]);
@@ -641,7 +642,7 @@ export function Scene3D({ active }: { active: boolean }) {
       <FlyControls active={active} />
       <PerfProbe />
       {enhancedRealism && (
-        <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} />
+        <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} photoMode={photoBusy} />
       )}
     </Canvas>
   );

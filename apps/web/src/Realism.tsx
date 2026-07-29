@@ -5,6 +5,7 @@ import { ContactShadows, SoftShadows, Environment } from '@react-three/drei';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   BloomEffect,
+  DepthOfFieldEffect,
   EffectComposer,
   EffectPass,
   NormalPass,
@@ -130,10 +131,13 @@ export function RealismEffects({
   quality,
   floorCenter = { x: 0, z: 0 },
   floorSpan = 12,
+  photoMode = false,
 }: {
   quality: Quality;
   floorCenter?: { x: number; z: number };
   floorSpan?: number;
+  /** One-shot capture in progress — adds the expensive, stills-only effects. */
+  photoMode?: boolean;
 }) {
   return (
     <>
@@ -153,7 +157,7 @@ export function RealismEffects({
         />
       </RealismSafeBoundary>
       <RealismSafeBoundary>
-        <PostEffects quality={quality} />
+        <PostEffects quality={quality} photoMode={photoMode} />
       </RealismSafeBoundary>
     </>
   );
@@ -168,7 +172,7 @@ export function RealismEffects({
  * moment fps sags, which pulls this back out automatically. SSAO setup gets its own
  * inner try/catch so a driver that chokes on it still leaves bloom running.
  */
-function PostEffects({ quality }: { quality: Quality }) {
+function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: boolean }) {
   const { gl, scene, camera, size } = useThree();
   const composerRef = useRef<EffectComposer | null>(null);
 
@@ -210,7 +214,27 @@ function PostEffects({ quality }: { quality: Quality }) {
         }
       }
 
-      composer.addPass(new EffectPass(camera, ...(ssao ? [ssao, bloom] : [bloom])));
+      // Depth of field only during a capture. It's the single most expensive effect
+      // here and it fights an interactive camera (focus lags every orbit), but in a
+      // still it's most of what separates a render from a photograph. `focusDistance`
+      // is normalised 0..1 across the camera's near/far range; ~4% lands on the middle
+      // of a domestic room from a typical viewing position.
+      let dof: DepthOfFieldEffect | null = null;
+      if (photoMode) {
+        try {
+          dof = new DepthOfFieldEffect(camera, {
+            focusDistance: 0.04,
+            focalLength: 0.05,
+            bokehScale: 3.2,
+          });
+        } catch (err) {
+          console.warn('[realism] depth of field init failed; capturing without it', err);
+          dof = null;
+        }
+      }
+
+      const effects = [ssao, dof, bloom].filter(Boolean) as NonNullable<typeof bloom>[];
+      composer.addPass(new EffectPass(camera, ...effects));
       composer.setSize(size.width, size.height);
       composerRef.current = composer;
       gl.toneMapping = THREE.NoToneMapping;
@@ -228,7 +252,7 @@ function PostEffects({ quality }: { quality: Quality }) {
       composerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, quality]);
+  }, [gl, scene, camera, quality, photoMode]);
 
   useEffect(() => {
     composerRef.current?.setSize(size.width, size.height);

@@ -281,6 +281,92 @@ const COVERING_LOOK: Record<'curtains' | 'blinds', { color: string; roughness: n
  * group using the wall's own position + rotation — the same trick WallMesh's geometry
  * uses, so the fill lines up with the hole cut into the wall.
  */
+/** Vertical folds per metre of curtain — enough to read as gathered fabric without
+ *  turning a window dressing into a geometry budget. */
+const CURTAIN_FOLDS_PER_M = 9;
+const BLIND_SLATS_PER_M = 18;
+
+/**
+ * A closed curtain or blind as actual geometry rather than a tinted rectangle.
+ *
+ * Curtains are a row of shallow cylinders: gathered fabric is essentially a run of
+ * vertical tubes, and catching a highlight down each fold is most of what makes cloth
+ * read as cloth. Blinds are a stack of thin horizontal slats, tilted so the edge catches
+ * light the way a real venetian does.
+ *
+ * Only the light-blocking behaviour has to stay exact — one flat pane keeps the
+ * `blocksLight` tag for the sun/lux raycasts, so the studies see a clean occluder
+ * instead of having to hit a fold, while the visible geometry sits just in front of it.
+ */
+function Covering({
+  kind,
+  width,
+  height,
+  centerX,
+  centerY,
+  z,
+  color,
+  roughness,
+}: {
+  kind: 'curtains' | 'blinds';
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+  z: number;
+  color: string;
+  roughness: number;
+}) {
+  const pieces = useMemo(() => {
+    const out: { key: string; position: [number, number, number]; rotation: [number, number, number]; args: [number, number, number, number] | null; box: [number, number, number] | null }[] = [];
+    if (kind === 'curtains') {
+      const n = Math.max(4, Math.round(width * CURTAIN_FOLDS_PER_M));
+      const step = width / n;
+      const radius = step * 0.62; // overlap slightly so folds touch rather than gap
+      for (let i = 0; i < n; i++) {
+        const x = centerX - width / 2 + step * (i + 0.5);
+        out.push({
+          key: `fold-${i}`,
+          position: [x, centerY, z + radius * 0.5],
+          rotation: [0, 0, 0],
+          args: [radius, radius, height, 8],
+          box: null,
+        });
+      }
+    } else {
+      const n = Math.max(5, Math.round(height * BLIND_SLATS_PER_M));
+      const step = height / n;
+      for (let i = 0; i < n; i++) {
+        const y = centerY - height / 2 + step * (i + 0.5);
+        out.push({
+          key: `slat-${i}`,
+          position: [centerX, y, z + 0.012],
+          rotation: [-0.42, 0, 0], // tilted, so the slat edge catches light
+          args: null,
+          box: [width, step * 0.92, 0.006],
+        });
+      }
+    }
+    return out;
+  }, [kind, width, height, centerX, centerY, z]);
+
+  return (
+    <group>
+      {/* Flat occluder: what the sun/lux studies actually raycast against. */}
+      <mesh position={[centerX, centerY, z]} userData={{ blocksLight: true }}>
+        <planeGeometry args={[width + 0.05, height + 0.05]} />
+        <meshStandardMaterial color={color} roughness={roughness} side={THREE.DoubleSide} />
+      </mesh>
+      {pieces.map((p) => (
+        <mesh key={p.key} position={p.position} rotation={p.rotation} castShadow receiveShadow>
+          {p.args ? <cylinderGeometry args={p.args} /> : <boxGeometry args={p.box!} />}
+          <meshStandardMaterial color={color} roughness={roughness} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function WindowFill({ opening, wall }: { opening: Opening; wall: Wall }) {
   const dx = wall.end.x - wall.start.x;
   const dz = wall.end.z - wall.start.z;
@@ -304,15 +390,16 @@ function WindowFill({ opening, wall }: { opening: Opening; wall: Wall }) {
         />
       </mesh>
       {look && (
-        <mesh
-          position={[cx, cy, wall.thickness / 2 + 0.02]}
-          castShadow
-          receiveShadow
-          userData={{ blocksLight: true }}
-        >
-          <planeGeometry args={[opening.width + 0.05, opening.height + 0.05]} />
-          <meshStandardMaterial color={look.color} roughness={look.roughness} side={THREE.DoubleSide} />
-        </mesh>
+        <Covering
+          kind={opening.covering.type as 'curtains' | 'blinds'}
+          width={opening.width}
+          height={opening.height}
+          centerX={cx}
+          centerY={cy}
+          z={wall.thickness / 2 + 0.02}
+          color={look.color}
+          roughness={look.roughness}
+        />
       )}
     </group>
   );
