@@ -1,0 +1,82 @@
+{
+  "carpet": {
+    "maps": {
+      "color": "carpet_color.jpg",
+      "normal": "carpet_normal.jpg",
+      "rough": "carpet_rough.jpg"
+    },
+    "source": "ambientCG Carpet016"
+  },
+  "fabric-linen": {
+    "maps": {
+      "color": "fabric-linen_color.jpg",
+      "normal": "fabric-linen_normal.jpg",
+      "rough": "fabric-linen_rough.jpg"
+    },
+    "source": "ambientCG Fabric030"
+  },
+  "fabric-wool": {
+    "maps": {
+      "color": "fabric-wool_color.jpg",
+      "normal": "fabric-wool_normal.jpg",
+      "rough": "fabric-wool_rough.jpg"
+    },
+    "source": "ambientCG Fabric061"
+  },
+  "leather": {
+    "maps": {
+      "color": "leather_color.jpg",
+      "normal": "leather_normal.jpg",
+      "rough": "leather_rough.jpg"
+    },
+    "source": "ambientCG Leather037"
+  },
+  "marble": {
+    "maps": {
+      "color": "marble_color.jpg",
+      "normal": "marble_normal.jpg",
+      "rough": "marble_rough.jpg"
+    },
+    "source": "ambientCG Marble012"
+  },
+  "metal": {
+    "maps": {
+      "color": "metal_color.jpg",
+      "normal": "metal_normal.jpg",
+      "rough": "metal_rough.jpg"
+    },
+    "source": "ambientCG Metal063"
+  },
+  "plaster": {
+    "maps": {
+      "color": "plaster_color.jpg",
+      "normal": "plaster_normal.jpg",
+      "rough": "plaster_rough.jpg"
+    },
+    "source": "ambientCG PaintedPlaster017"
+  },
+  "wood-floor": {
+    "maps": {
+      "color": "wood-floor_color.jpg",
+      "normal": "wood-floor_normal.jpg",
+      "rough": "wood-floor_rough.jpg"
+    },
+    "source": "ambientCG WoodFloor051"
+  },
+  "wood-oak": {
+    "maps": {
+      "color": "wood-oak_color.jpg",
+      "normal": "wood-oak_normal.jpg",
+      "rough": "wood-oak_rough.jpg"
+    },
+    "source": "ambientCG Wood095"
+  },
+  "wood-walnut": {
+    "maps": {
+      "color": "wood-walnut_color.jpg",
+      "normal": "wood-walnut_normal.jpg",
+      "rough": "wood-walnut_rough.jpg"
+    },
+    "source": "ambientCG Wood051"
+  }
+}

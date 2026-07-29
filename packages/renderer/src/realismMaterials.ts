@@ -7,6 +7,7 @@
 
 import * as THREE from "three";
 import type { CatalogCategory } from "@interior/catalog";
+import { familyForCategory, familyMapsWithRepeat, type MaterialFamily } from "./pbrTextures.js";
 
 const texCache = new Map<string, THREE.CanvasTexture>();
 
@@ -222,6 +223,45 @@ export interface RealismMaterialOpts {
    * Room surfaces (wall/floor/ceiling) keep their own UVs and so leave this off.
    */
   boxUV?: boolean;
+  /**
+   * Which photographic CC0 material to use (see pbrTextures.ts). Defaults to the
+   * category's usual material; set it to let a user say "this sofa is leather, not
+   * wool". Falls back to the procedural maps when the images can't be loaded.
+   */
+  family?: MaterialFamily;
+}
+
+/**
+ * How far a photographic albedo is pulled toward white before the catalog colour
+ * multiplies it. At 0 the item's colour would double-darken a already-toned photo; at 1
+ * the whole catalog would look identical. This keeps the photo's own tone dominant while
+ * a walnut shelf and an oak shelf still read as different pieces.
+ */
+const PHOTO_TINT_TOWARD_WHITE = 0.6;
+
+/**
+ * Assign colour/normal/roughness maps, preferring the photographic set and falling back
+ * to the canvas-drawn ones (headless runs, or images that failed to load).
+ */
+function assignMaps(
+  mat: THREE.MeshPhysicalMaterial,
+  family: MaterialFamily,
+  color: string,
+  repeat: [number, number],
+  procedural: { color: () => THREE.Texture; normal: () => THREE.Texture },
+  normalScale: number,
+): void {
+  const photo = familyMapsWithRepeat(family, repeat[0], repeat[1]);
+  if (photo) {
+    mat.map = photo.map;
+    mat.normalMap = photo.normalMap;
+    mat.roughnessMap = photo.roughnessMap;
+    mat.color = new THREE.Color(color).lerp(new THREE.Color("#ffffff"), PHOTO_TINT_TOWARD_WHITE);
+  } else {
+    mat.map = mapWithRepeat(procedural.color(), repeat[0], repeat[1]);
+    mat.normalMap = mapWithRepeat(procedural.normal(), repeat[0], repeat[1]);
+  }
+  mat.normalScale = new THREE.Vector2(normalScale, normalScale);
 }
 
 /**
@@ -234,12 +274,12 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
   const mat = new THREE.MeshPhysicalMaterial({ color });
   /** UV repeat for this material — neutral when box UVs already carry the tiling. */
   const rep = (rx: number, ry: number): [number, number] => (opts.boxUV ? [1, 1] : [rx, ry]);
+  const family = opts.family ?? familyForCategory(category);
 
   switch (category) {
     case "seating": {
-      mat.map = mapWithRepeat(fabricTexture(color), ...rep(2.5, 2.5));
-      mat.normalMap = mapWithRepeat(fabricNormalMap(), ...rep(2.5, 2.5));
-      mat.normalScale = new THREE.Vector2(0.45, 0.45);
+      assignMaps(mat, family, color, rep(2.5, 2.5),
+        { color: () => fabricTexture(color), normal: () => fabricNormalMap() }, 0.45);
       mat.roughness = 0.78;
       mat.metalness = 0;
       mat.sheen = 1;
@@ -251,9 +291,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     case "tables":
     case "storage":
     case "beds": {
-      mat.map = mapWithRepeat(woodTexture(color), ...rep(2, 1.2));
-      mat.normalMap = mapWithRepeat(woodNormalMap(), ...rep(2, 1.2));
-      mat.normalScale = new THREE.Vector2(0.6, 0.6);
+      assignMaps(mat, family, color, rep(2, 1.2),
+        { color: () => woodTexture(color), normal: () => woodNormalMap() }, 0.6);
       mat.roughness = opts.roughness ?? 0.42;
       mat.metalness = 0.02;
       mat.clearcoat = 0.35;
@@ -272,9 +311,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
         mat.sheenColor = new THREE.Color("#7dcf8a");
         mat.envMapIntensity = 0.5;
       } else {
-        mat.map = mapWithRepeat(carpetTexture(color), ...rep(3, 3));
-        mat.normalMap = mapWithRepeat(carpetNormalMap(), ...rep(3, 3));
-        mat.normalScale = new THREE.Vector2(0.5, 0.5);
+        assignMaps(mat, family, color, rep(3, 3),
+          { color: () => carpetTexture(color), normal: () => carpetNormalMap() }, 0.5);
         mat.roughness = 0.92;
         mat.metalness = 0;
         mat.envMapIntensity = 0.35;
@@ -289,9 +327,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
       break;
     }
     case "floor": {
-      mat.map = mapWithRepeat(woodTexture(color), 4, 4);
-      mat.normalMap = mapWithRepeat(woodNormalMap(), 4, 4);
-      mat.normalScale = new THREE.Vector2(0.55, 0.55);
+      assignMaps(mat, family, color, [4, 4],
+        { color: () => woodTexture(color), normal: () => woodNormalMap() }, 0.55);
       mat.roughness = opts.roughness ?? 0.55;
       mat.metalness = 0.02;
       mat.clearcoat = 0.2;
@@ -300,18 +337,16 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
       break;
     }
     case "wall": {
-      mat.map = mapWithRepeat(plasterTexture(color), 3, 3);
-      mat.normalMap = mapWithRepeat(plasterNormalMap(), 3, 3);
-      mat.normalScale = new THREE.Vector2(0.3, 0.3);
+      assignMaps(mat, family, color, [3, 3],
+        { color: () => plasterTexture(color), normal: () => plasterNormalMap() }, 0.3);
       mat.roughness = opts.roughness ?? 0.88;
       mat.metalness = 0;
       mat.envMapIntensity = 0.45;
       break;
     }
     case "ceiling": {
-      mat.map = mapWithRepeat(plasterTexture(color), 2, 2);
-      mat.normalMap = mapWithRepeat(plasterNormalMap(), 2, 2);
-      mat.normalScale = new THREE.Vector2(0.22, 0.22);
+      assignMaps(mat, family, color, [2, 2],
+        { color: () => plasterTexture(color), normal: () => plasterNormalMap() }, 0.22);
       mat.roughness = opts.roughness ?? 0.92;
       mat.metalness = 0;
       mat.envMapIntensity = 0.3;

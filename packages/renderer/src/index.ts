@@ -22,3 +22,12 @@ export {
   carpetTexture,
 } from "./realismMaterials.js";
 export { applyBoxUVs, writeBoxUVs, tilesPerMeterFor, TILES_PER_METER } from "./boxUVs.js";
+export {
+  familyForCategory,
+  familyMaps,
+  familyMapsWithRepeat,
+  MATERIAL_FAMILIES,
+  FAMILY_LABEL,
+  FAMILY_FOR_CATEGORY,
+} from "./pbrTextures.js";
+export type { MaterialFamily, FamilyMaps } from "./pbrTextures.js";

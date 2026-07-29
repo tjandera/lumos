@@ -192,3 +192,31 @@ suffice" guidance):
   for the full command output), plus a standalone check that three.js's own
   `GLTFLoader` parses `test-box.glb` without error and reports the expected
   1×1×1 bounding box.
+
+## PBR surface textures (`apps/web/public/textures/`)
+
+Ten photographic material families used by Realism mode — colour, normal
+(OpenGL convention) and roughness maps each, downscaled to 512×512 JPEG
+(~1.2 MB total). Loaded by `packages/renderer/src/pbrTextures.ts`; the
+procedural canvas maps in `realismMaterials.ts` remain the fallback for
+headless runs and while these are still downloading.
+
+All sourced from **ambientCG** (https://ambientcg.com) and released under
+**CC0 1.0 Universal** (https://creativecommons.org/publicdomain/zero/1.0/) —
+public domain, no attribution required. Recorded here for provenance.
+
+| Family | ambientCG asset |
+| --- | --- |
+| `wood-oak` | Wood095 |
+| `wood-walnut` | Wood051 |
+| `wood-floor` | WoodFloor051 |
+| `fabric-wool` | Fabric061 |
+| `fabric-linen` | Fabric030 |
+| `leather` | Leather037 |
+| `carpet` | Carpet016 |
+| `plaster` | PaintedPlaster017 |
+| `marble` | Marble012 |
+| `metal` | Metal063 |
+
+`apps/web/public/textures/manifest.json` records the same mapping in a
+machine-readable form, so the set can be re-fetched or refreshed later.
