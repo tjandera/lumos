@@ -21,3 +21,4 @@ export {
   plasterTexture,
   carpetTexture,
 } from "./realismMaterials.js";
+export { applyBoxUVs, writeBoxUVs, tilesPerMeterFor, TILES_PER_METER } from "./boxUVs.js";

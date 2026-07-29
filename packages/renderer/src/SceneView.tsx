@@ -19,6 +19,7 @@ import {
 import { getCatalogItem, DEFAULT_ITEM, type CatalogItem, type CatalogCategory } from '@interior/catalog';
 import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
 import { applyRealismMaterials, createRealismMaterial, plasterTexture } from './realismMaterials.js';
+import { applyBoxUVs, tilesPerMeterFor } from './boxUVs.js';
 
 /**
  * Renders a SceneDocument as 3D. Walls are extruded from their elevation profile with
@@ -427,11 +428,18 @@ function FurnitureModel({
         mesh.receiveShadow = true;
       }
     });
-    if (realism) applyRealismMaterials(cloned, category, color);
     const box = new THREE.Box3().setFromObject(cloned);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     const s = size.x > 1e-4 ? targetWidth / size.x : 1;
+    if (realism) {
+      // Re-project UVs in real-world metres before texturing: the authored UVs span
+      // ±15 to ±74 and differ per model, which would tile any detail texture into
+      // static at a different density on every item. `s` converts the model's own
+      // units to metres, so a stool and a sofa end up with the same weave size.
+      applyBoxUVs(cloned, s, tilesPerMeterFor(category));
+      applyRealismMaterials(cloned, category, color);
+    }
     cloned.position.set(-center.x, -box.min.y, -center.z); // center x/z, base to y = 0
     const wrapper = new THREE.Group();
     wrapper.add(cloned);

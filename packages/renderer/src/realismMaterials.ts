@@ -215,6 +215,13 @@ export interface RealismMaterialOpts {
   color: string;
   /** Base roughness from paint finish, if any. */
   roughness?: number;
+  /**
+   * Set when the mesh has been given box-projected UVs (see boxUVs.ts), which already
+   * encode tiling in repeats-per-metre. The per-material `repeat` below then has to be
+   * 1, or the two multiply and the texture tiles far too finely to read as a material.
+   * Room surfaces (wall/floor/ceiling) keep their own UVs and so leave this off.
+   */
+  boxUV?: boolean;
 }
 
 /**
@@ -225,11 +232,13 @@ export interface RealismMaterialOpts {
 export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhysicalMaterial {
   const { category, color } = opts;
   const mat = new THREE.MeshPhysicalMaterial({ color });
+  /** UV repeat for this material — neutral when box UVs already carry the tiling. */
+  const rep = (rx: number, ry: number): [number, number] => (opts.boxUV ? [1, 1] : [rx, ry]);
 
   switch (category) {
     case "seating": {
-      mat.map = mapWithRepeat(fabricTexture(color), 2.5, 2.5);
-      mat.normalMap = mapWithRepeat(fabricNormalMap(), 2.5, 2.5);
+      mat.map = mapWithRepeat(fabricTexture(color), ...rep(2.5, 2.5));
+      mat.normalMap = mapWithRepeat(fabricNormalMap(), ...rep(2.5, 2.5));
       mat.normalScale = new THREE.Vector2(0.45, 0.45);
       mat.roughness = 0.78;
       mat.metalness = 0;
@@ -242,8 +251,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
     case "tables":
     case "storage":
     case "beds": {
-      mat.map = mapWithRepeat(woodTexture(color), 2, 1.2);
-      mat.normalMap = mapWithRepeat(woodNormalMap(), 2, 1.2);
+      mat.map = mapWithRepeat(woodTexture(color), ...rep(2, 1.2));
+      mat.normalMap = mapWithRepeat(woodNormalMap(), ...rep(2, 1.2));
       mat.normalScale = new THREE.Vector2(0.6, 0.6);
       mat.roughness = opts.roughness ?? 0.42;
       mat.metalness = 0.02;
@@ -263,8 +272,8 @@ export function createRealismMaterial(opts: RealismMaterialOpts): THREE.MeshPhys
         mat.sheenColor = new THREE.Color("#7dcf8a");
         mat.envMapIntensity = 0.5;
       } else {
-        mat.map = mapWithRepeat(carpetTexture(color), 3, 3);
-        mat.normalMap = mapWithRepeat(carpetNormalMap(), 3, 3);
+        mat.map = mapWithRepeat(carpetTexture(color), ...rep(3, 3));
+        mat.normalMap = mapWithRepeat(carpetNormalMap(), ...rep(3, 3));
         mat.normalScale = new THREE.Vector2(0.5, 0.5);
         mat.roughness = 0.92;
         mat.metalness = 0;
@@ -326,7 +335,9 @@ export function applyRealismMaterials(root: THREE.Object3D, category: CatalogCat
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
-    mesh.material = createRealismMaterial({ category, color });
+    // Furniture meshes get box-projected UVs (see boxUVs.ts / FurnitureModel), so the
+    // material must not apply a second repeat on top of them.
+    mesh.material = createRealismMaterial({ category, color, boxUV: true });
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   });

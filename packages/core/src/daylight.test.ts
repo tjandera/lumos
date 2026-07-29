@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { daylightAperture, documentDaylightAperture, FULL_DAYLIGHT_APERTURE_RATIO } from './daylight.js';
 import { rectWalls } from './geometry.js';
-import { DEFAULT_ROOM_MATERIALS } from './schema.js';
+import { DEFAULT_ROOM_MATERIALS } from './document.js';
 import type { Opening, Room } from './schema.js';
 
 /** 5x4m room (20 m²) with four walls, ids wall-0..wall-3 from `rectWalls`. */

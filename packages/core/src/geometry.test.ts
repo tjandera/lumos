@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { polygonAbsArea, rectWalls, roomCorners } from './geometry.js';
-import { DEFAULT_ROOM_MATERIALS } from './schema.js';
+import { DEFAULT_ROOM_MATERIALS } from './document.js';
 import type { Room, Wall } from './schema.js';
 
 const room = (walls: Wall[]): Room => ({ id: 'r', name: 'R', walls, materials: DEFAULT_ROOM_MATERIALS });
