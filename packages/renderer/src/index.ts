@@ -31,3 +31,4 @@ export {
   FAMILY_FOR_CATEGORY,
 } from "./pbrTextures.js";
 export type { MaterialFamily, FamilyMaps } from "./pbrTextures.js";
+export { Trim, buildTrimPieces } from "./Trim.js";

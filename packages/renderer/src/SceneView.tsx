@@ -20,6 +20,7 @@ import { getCatalogItem, DEFAULT_ITEM, type CatalogItem, type CatalogCategory } 
 import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
 import { applyRealismMaterials, createRealismMaterial, hasAuthoredMaps, plasterTexture } from './realismMaterials.js';
 import { applyBoxUVs, tilesPerMeterFor } from './boxUVs.js';
+import { Trim } from './Trim.js';
 import type { MaterialFamily } from './pbrTextures.js';
 
 /**
@@ -55,6 +56,7 @@ export function SceneView({
   return (
     <group>
       <Floor doc={doc} realism={realism} />
+      <Trim doc={doc} centroid={centroid} realism={realism} />
       <Ceiling doc={doc} realism={realism} />
       {(doc.rooms ?? []).flatMap((room) =>
         (room.walls ?? []).map((wall) => (
