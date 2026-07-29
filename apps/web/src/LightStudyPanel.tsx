@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
-import { X, Play, Pause, Sun, RefreshCw, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { X, Play, Pause, Sun, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useUiStore } from './uiStore';
 import { STUDY_FRAME_COUNT } from './LightStudy';
+import { getLightStudyStatus, relightFrame, type LightPresetInfo } from './api/client';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const clock = (minutes: number) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
@@ -9,6 +10,11 @@ const clock = (minutes: number) => `${pad(Math.floor(minutes / 60))}:${pad(minut
 /** How long each frame is held when playing the day back. Slow enough to read the
  *  light, fast enough that a full day takes a few seconds. */
 const PLAYBACK_MS = 140;
+
+const presetChip = (active: boolean) =>
+  `rounded px-1.5 py-0.5 text-[10px] disabled:opacity-40 ${
+    active ? 'bg-amber-500/30 text-amber-100' : 'bg-white/10 text-white/60 hover:bg-white/20'
+  }`;
 
 /**
  * A day of real renders you can scrub through.
@@ -32,6 +38,43 @@ export function LightStudyPanel() {
   const playing = useUiStore((s) => s.lightStudyPlaying);
   const setPlaying = useUiStore((s) => s.setLightStudyPlaying);
 
+  // --- Optional photoreal pass -------------------------------------------------
+  const [presets, setPresets] = useState<LightPresetInfo[]>([]);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiMock, setAiMock] = useState(false);
+  const [relighting, setRelighting] = useState<string | null>(null);
+  const [relitError, setRelitError] = useState<string | null>(null);
+  /** Cache keyed `${frameIndex}:${preset}` — re-lighting is metered, so never pay
+   *  twice for the same frame/mood, and flipping between them stays instant. */
+  const relitCache = useRef<Map<string, string>>(new Map());
+  const [shownPreset, setShownPreset] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getLightStudyStatus()
+      .then((s) => {
+        if (cancelled) return;
+        setAiAvailable(s.available);
+        setAiMock(s.mock);
+        setPresets(s.presets);
+      })
+      // The API being down or absent is not an error here — the day cycle above it is
+      // rendered locally and works regardless.
+      .catch(() => {
+        if (!cancelled) setAiAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Moving to another hour invalidates what's on screen, not the cache.
+  useEffect(() => {
+    setShownPreset(null);
+    setRelitError(null);
+  }, [index]);
+
   // Play the captured day back on a timer. Stops itself if the frames go away.
   useEffect(() => {
     if (!playing || frames.length === 0) return;
@@ -46,9 +89,38 @@ export function LightStudyPanel() {
     if (frames.length === 0 && playing) setPlaying(false);
   }, [frames.length, playing, setPlaying]);
 
+  const safeIndex = Math.min(index, Math.max(0, frames.length - 1));
+  const current = frames[safeIndex];
+
+  const applyPreset = useCallback(
+    async (presetId: string) => {
+      const frame = useUiStore.getState().lightStudyFrames[safeIndex];
+      if (!frame) return;
+      const key = `${safeIndex}:${presetId}`;
+      if (relitCache.current.has(key)) {
+        setShownPreset(presetId);
+        setRelitError(null);
+        return;
+      }
+      setRelighting(presetId);
+      setRelitError(null);
+      try {
+        const { imageDataUrl } = await relightFrame(frame.dataUrl, presetId);
+        relitCache.current.set(key, imageDataUrl);
+        setShownPreset(presetId);
+      } catch (err) {
+        setRelitError(err instanceof Error ? err.message : 'Re-lighting failed');
+      } finally {
+        setRelighting(null);
+      }
+    },
+    [safeIndex],
+  );
+
   if (!open) return null;
 
-  const current = frames[Math.min(index, frames.length - 1)];
+  const relitSrc = shownPreset ? relitCache.current.get(`${safeIndex}:${shownPreset}`) : undefined;
+  const displaySrc = relitSrc ?? current?.dataUrl;
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4" onClick={toggle}>
@@ -104,13 +176,23 @@ export function LightStudyPanel() {
               {/* Cap the height so the scrubber stays on screen: the canvas can be far
                   taller than it is wide, and a full-width image would push the controls
                   out of view entirely on a portrait window. */}
-              <div className="flex max-h-[55vh] items-center justify-center overflow-hidden rounded-lg bg-black">
+              <div className="relative flex max-h-[55vh] items-center justify-center overflow-hidden rounded-lg bg-black">
                 {current && (
                   <img
-                    src={current.dataUrl}
+                    src={displaySrc}
                     alt={`Room at ${clock(current.minutes)}`}
                     className="max-h-[55vh] w-auto max-w-full object-contain"
                   />
+                )}
+                {relitSrc && (
+                  <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-200">
+                    AI re-lit{aiMock ? ' (mock)' : ''} · {presets.find((p) => p.id === shownPreset)?.label ?? shownPreset}
+                  </span>
+                )}
+                {relighting && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/55">
+                    <Loader2 size={20} className="animate-spin text-amber-300" />
+                  </div>
                 )}
               </div>
 
@@ -138,6 +220,37 @@ export function LightStudyPanel() {
                   {current ? clock(current.minutes) : '—'}
                 </span>
               </div>
+
+              {aiAvailable && (
+                <div className="mt-3 border-t border-white/10 pt-2">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Sparkles size={12} className="mr-0.5 text-amber-300" />
+                    <span className="mr-1 text-[11px] text-white/45">Photoreal pass:</span>
+                    <button
+                      className={presetChip(shownPreset === null)}
+                      onClick={() => setShownPreset(null)}
+                      disabled={!!relighting}
+                    >
+                      Render
+                    </button>
+                    {presets.map((p) => (
+                      <button
+                        key={p.id}
+                        className={presetChip(shownPreset === p.id)}
+                        onClick={() => applyPreset(p.id)}
+                        disabled={!!relighting}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] leading-snug text-white/30">
+                    Restyles this frame only — the day cycle above is the physically-accurate one.
+                    The model can drift from your exact furniture; treat it as a mood image.
+                  </p>
+                  {relitError && <p className="mt-1 text-[11px] text-red-300">{relitError}</p>}
+                </div>
+              )}
 
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-[11px] text-white/35">{frames.length} frames · drag to scrub</span>

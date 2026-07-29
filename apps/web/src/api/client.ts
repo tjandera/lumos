@@ -187,3 +187,37 @@ export async function checkHealth(): Promise<boolean> {
 export function isNetworkError(err: unknown): boolean {
   return !(err instanceof ApiError);
 }
+
+// --- Light study: optional photoreal re-lighting of a captured frame ------------
+
+export interface LightPresetInfo {
+  id: string;
+  label: string;
+}
+
+export interface LightStudyStatus {
+  available: boolean;
+  mock: boolean;
+  presets: LightPresetInfo[];
+}
+
+/** Whether the server can re-light frames, and which moods it offers. The accurate day
+ *  cycle is rendered client-side, so "unavailable" only disables the styling pass. */
+export async function getLightStudyStatus(): Promise<LightStudyStatus> {
+  return request<LightStudyStatus>("/light-study/status");
+}
+
+/**
+ * Re-light one captured frame. The frame is always one of our own renders, so the
+ * model restyles a room whose geometry and camera are already correct rather than
+ * inventing one.
+ */
+export async function relightFrame(
+  frameDataUrl: string,
+  preset: string
+): Promise<{ imageDataUrl: string; preset: string; mock: boolean }> {
+  return request<{ imageDataUrl: string; preset: string; mock: boolean }>("/light-study/relight", {
+    method: "POST",
+    body: JSON.stringify({ frameDataUrl, preset })
+  });
+}

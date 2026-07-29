@@ -16,9 +16,11 @@ import { FileShareTokenStore } from "./share/tokenStore.js";
 import { PostgresShareTokenStore } from "./share/postgresTokenStore.js";
 import type { ShareTokenStore } from "./share/tokenStore.js";
 import { registerSession, resolveSessionSecret } from "./auth/session.js";
-import type { RateLimitOptions } from "./ai/rateLimit.js";
+import { createRateLimiter, type RateLimitOptions } from "./ai/rateLimit.js";
 import { createPgPool, ensurePgSchema, pingPgPool, type PgPool } from "./db/pool.js";
 import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
+import { lightStudyRoutes } from "./lightStudy/routes.js";
+import type { LightStudyConfig } from "./lightStudy/openai.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +68,15 @@ export interface BuildAppOptions {
    * themselves unavailable via `/room-photo/status`.
    */
   roomPhoto?: RoomPhotoConfig;
+  /**
+   * Photoreal re-lighting of a captured light-study frame. Optional in exactly the same
+   * way as `roomPhoto`: the routes always register and report themselves unavailable via
+   * `/light-study/status`, because the accurate day cycle is rendered client-side and
+   * doesn't need this at all.
+   */
+  lightStudy?: LightStudyConfig;
+  /** Override the light-study route's rate-limit window/max (tests). */
+  lightStudyRateLimit?: RateLimitOptions;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -136,6 +147,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(roomPhotoRoutes, {
     config: options.roomPhoto ?? { apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL ?? "gpt-5.6", mock: process.env.ROOM_PHOTO_MOCK === "true" }
   });
+  // Image generation is the priciest call this server can make, so it gets a much
+  // tighter budget than the chat proxy's 20/min default.
+  const lightStudyRateLimit = createRateLimiter(options.lightStudyRateLimit ?? { windowMs: 5 * 60_000, max: 12 });
+  await app.register(lightStudyRoutes, {
+    config:
+      options.lightStudy ?? {
+        apiKey: process.env.OPENAI_API_KEY,
+        imageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+        mock: process.env.LIGHT_STUDY_MOCK === "true"
+      },
+    checkRateLimit: lightStudyRateLimit
+  });
   await app.register(designRoutes, { storage, ownership, tokens });
   await app.register(shareRoutes, { storage, tokens });
 
@@ -176,10 +199,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { enabled: featureAi, provider: providerKind };
   });
   if (featureAi && provider) {
-    const [{ aiRoutes }, { createRateLimiter }] = await Promise.all([
-      import("./ai/routes.js"),
-      import("./ai/rateLimit.js")
-    ]);
+    // Only the routes are lazy now; `createRateLimiter` is imported statically above
+    // (it's a tiny dependency-free module, and the light-study route needs it eagerly).
+    const { aiRoutes } = await import("./ai/routes.js");
     const checkRateLimit = createRateLimiter(options.aiRateLimit);
     await app.register(aiRoutes as never, { provider, catalog: catalogItems, checkRateLimit } as never);
   }
