@@ -38,7 +38,7 @@ function hasTarget(c: unknown): c is HasTarget {
  * instant OrbitControls next updates.
  */
 export function FlyControls({ active }: { active: boolean }) {
-  const { camera, controls } = useThree();
+  const { camera, controls, invalidate } = useThree();
   const held = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -47,6 +47,9 @@ export function FlyControls({ active }: { active: boolean }) {
       const k = e.key.toLowerCase();
       if (!KEYS.has(k) || isTypingTarget(e.target)) return;
       held.current.add(k);
+      // The scene renders on demand, so the first frame of movement has to be asked for;
+      // the useFrame below then keeps asking for as long as the key is down.
+      invalidate();
     };
     const onKeyUp = (e: KeyboardEvent) => {
       held.current.delete(e.key.toLowerCase());
@@ -61,7 +64,7 @@ export function FlyControls({ active }: { active: boolean }) {
       window.removeEventListener('blur', onBlur);
       held.current.clear();
     };
-  }, [active]);
+  }, [active, invalidate]);
 
   const forward = useRef(new THREE.Vector3());
   const right = useRef(new THREE.Vector3());
@@ -98,6 +101,7 @@ export function FlyControls({ active }: { active: boolean }) {
     if (delta3.current.lengthSq() === 0) return;
     camera.position.add(delta3.current);
     if (hasTarget(controls)) controls.target.add(delta3.current);
+    invalidate();
   });
 
   return null;

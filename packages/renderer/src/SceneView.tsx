@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import {
   DEG2RAD,
@@ -111,6 +111,7 @@ function WallMesh({
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
+  const invalidate = useThree((s) => s.invalidate);
 
   const geometry = useMemo(() => buildWallGeometry(computeWallShape(wall, openings)), [wall, openings]);
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -145,6 +146,9 @@ function WallMesh({
     mat.transparent = mat.opacity < 0.98;
     mat.depthWrite = mat.opacity > 0.5;
     mesh.castShadow = mat.opacity > 0.5;
+    // The scene renders on demand, so a fade in progress has to ask for the next frame
+    // or it freezes part-way through.
+    if (Math.abs(target - mat.opacity) > 0.005) invalidate();
   });
 
   const plasterMap = useMemo(() => {
@@ -219,6 +223,7 @@ function Floor({ doc, realism }: { doc: SceneDocument; realism?: boolean }) {
  */
 function Ceiling({ doc, realism }: { doc: SceneDocument; realism?: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const invalidateCeiling = useThree((s) => s.invalidate);
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const { center, size } = useMemo(() => footprint(doc), [doc]);
   const material = doc.rooms[0]?.materials.ceiling ?? DEFAULT_CEILING_MATERIAL;
@@ -242,6 +247,8 @@ function Ceiling({ doc, realism }: { doc: SceneDocument; realism?: boolean }) {
     if (!mat || !mesh) return;
     const target = camera.position.y > ceilingY - 0.15 ? 0.06 : 1;
     mat.opacity += (target - mat.opacity) * 0.2;
+    // On-demand rendering: keep asking for frames until the fade settles.
+    if (Math.abs(target - mat.opacity) > 0.005) invalidateCeiling();
     mat.transparent = mat.opacity < 0.98;
     mesh.castShadow = mat.opacity > 0.5;
   });

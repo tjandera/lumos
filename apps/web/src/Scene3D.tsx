@@ -21,6 +21,7 @@ import { FurnitureGizmo } from './FurnitureGizmo';
 import { FlyControls } from './FlyControls';
 import { LightStudyCapture } from './LightStudy';
 import { collidingFurnitureIds } from './collisionUi';
+import { maxPixelRatio, powerPreference } from './perfProfile';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -167,12 +168,20 @@ function SunDirectional({
   );
 }
 
-/** Advances the time-of-day while playing (~48s per full day). */
+/**
+ * Advances the time-of-day while playing (~48s per full day).
+ *
+ * In demand mode nothing schedules the next frame on its own, so an animation has to
+ * keep asking. `invalidate()` requests one more, which runs this again — self-sustaining
+ * for exactly as long as playback is on, and costing nothing the moment it stops.
+ */
 function SunAnimator({ enabled }: { enabled: boolean }) {
+  const invalidate = useThree((s) => s.invalidate);
   useFrame((_, delta) => {
     if (!enabled) return;
     const cur = useUiStore.getState().timeMinutes;
     useUiStore.getState().setTimeMinutes((cur + delta * 30) % 1440);
+    invalidate();
   });
   return null;
 }
@@ -365,6 +374,7 @@ export function Scene3D({ active }: { active: boolean }) {
   const setAvgLux = useUiStore((s) => s.setAvgLux);
   const enhancedRealism = useUiStore((s) => s.enhancedRealism);
   const photoBusy = useUiStore((s) => s.photoBusy);
+  const lightStudyBusy = useUiStore((s) => s.lightStudyBusy);
   const cam = doc.view?.camera ?? { position: { x: 5.5, y: 4.5, z: 5.5 }, target: { x: 0, y: 1, z: 0 } };
 
   const collidingIds = useMemo(() => collidingFurnitureIds(doc), [doc]);
@@ -503,6 +513,19 @@ export function Scene3D({ active }: { active: boolean }) {
     }),
     [studyBounds],
   );
+  /**
+   * Contact shadows no longer re-render every frame (that was a whole extra pass,
+   * permanently). They render a couple of frames and stop — so they have to be
+   * remounted when the thing they depict moves. This key changes exactly then.
+   */
+  const contactShadowKey = useMemo(
+    () =>
+      `${quality}:${(doc.furniture ?? [])
+        .map((f) => `${f.id}@${f.position.x.toFixed(2)},${f.position.z.toFixed(2)},${Math.round(f.rotationY)}`)
+        .join('|')}`,
+    [doc.furniture, quality],
+  );
+
   const floorSpan = useMemo(
     () => Math.max(studyBounds.maxX - studyBounds.minX, studyBounds.maxZ - studyBounds.minZ),
     [studyBounds],
@@ -510,13 +533,28 @@ export function Scene3D({ active }: { active: boolean }) {
 
   return (
     <Canvas
-      frameloop={active ? 'always' : 'never'}
+      /**
+       * Render on demand, not continuously.
+       *
+       * A design tool sitting still should cost nothing: with 'always' the GPU redraws
+       * at the display's full rate (120Hz on a ProMotion Mac) even when the scene hasn't
+       * changed, which is the main reason the fans spin. In 'demand' mode R3F draws on
+       * prop changes and pointer events, and anything genuinely animating asks for the
+       * next frame itself via `invalidate()` (see SunAnimator, FlyControls, the wall
+       * fades). Multi-frame capture state machines can't drive themselves that way, so
+       * they force 'always' for their duration.
+       */
+      frameloop={!active ? 'never' : photoBusy || lightStudyBusy ? 'always' : 'demand'}
+      dpr={[1, maxPixelRatio(quality, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)]}
       shadows="soft"
       camera={{ position: [cam.position.x, cam.position.y, cam.position.z], fov: 50 }}
       gl={{
         antialias: true,
         toneMapping: THREE.ACESFilmicToneMapping,
-        powerPreference: 'high-performance',
+        // Only the top tier asks for the discrete GPU; requesting it unconditionally
+        // is what makes a dual-GPU laptop switch over and heat up the moment the app
+        // opens, for very little gain on a scene of this size.
+        powerPreference: powerPreference(quality),
         // Required by every feature that reads the canvas back — the Capture button and
         // the day-cycle light study both call `toDataURL`. Without it the browser is
         // free to discard the drawing buffer after compositing, and the read returns a
@@ -642,7 +680,13 @@ export function Scene3D({ active }: { active: boolean }) {
       <FlyControls active={active} />
       <PerfProbe />
       {enhancedRealism && (
-        <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} photoMode={photoBusy} />
+        <RealismEffects
+          quality={quality}
+          floorCenter={floorCenter}
+          floorSpan={floorSpan}
+          photoMode={photoBusy}
+          contactShadowKey={contactShadowKey}
+        />
       )}
     </Canvas>
   );

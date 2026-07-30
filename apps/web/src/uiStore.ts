@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { initialQuality, readDeviceSignals } from './perfProfile';
 
 export type ViewMode = '3d' | 'plan';
 export type SunMode = 'auto' | 'manual';
@@ -180,7 +181,10 @@ export const useUiStore = create<UiStore>()((set) => ({
   toggleShowSun: () => set((s) => ({ showSun: !s.showSun })),
   showSunPath: true,
   toggleSunPath: () => set((s) => ({ showSunPath: !s.showSunPath })),
-  quality: 'med',
+  // Chosen from what the device actually is, not a fixed guess. The fps governor is
+  // reactive and can't see a machine that holds 120fps by pinning its GPU — starting
+  // from hardware signals is what keeps a laptop from heating up before it can react.
+  quality: initialQuality(readDeviceSignals()),
   setQuality: (quality) => set({ quality }),
   lightingOpen: false,
   toggleLighting: () => set((s) => ({ lightingOpen: !s.lightingOpen })),

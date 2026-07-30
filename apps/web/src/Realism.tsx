@@ -14,6 +14,7 @@ import {
 } from 'postprocessing';
 import { createSkyEnvironment, skyColors } from '@interior/renderer';
 import { useUiStore, type Quality } from './uiStore';
+import { contactShadowFrames } from './perfProfile';
 
 /** Catches Realism-only failures (HDRI CDN, SoftShadows, bloom) without blanking the app. */
 class RealismSafeBoundary extends Component<
@@ -132,12 +133,16 @@ export function RealismEffects({
   floorCenter = { x: 0, z: 0 },
   floorSpan = 12,
   photoMode = false,
+  contactShadowKey = '',
 }: {
   quality: Quality;
   floorCenter?: { x: number; z: number };
   floorSpan?: number;
   /** One-shot capture in progress — adds the expensive, stills-only effects. */
   photoMode?: boolean;
+  /** Changes when the furniture layout does, remounting the contact-shadow pass so it
+   *  re-bakes. It renders a fixed number of frames rather than every frame. */
+  contactShadowKey?: string;
 }) {
   return (
     <>
@@ -146,7 +151,11 @@ export function RealismEffects({
       </RealismSafeBoundary>
       <RealismSafeBoundary>
         <ContactShadows
-          frames={Infinity}
+          key={contactShadowKey}
+          // Was `Infinity`, i.e. a whole extra scene render every frame for the life of
+          // the app. A couple of frames bakes the same result; the key above re-bakes it
+          // when the layout actually changes.
+          frames={contactShadowFrames(quality)}
           position={[floorCenter.x, 0.012, floorCenter.z]}
           opacity={0.65}
           scale={Math.max(10, floorSpan + 2)}
