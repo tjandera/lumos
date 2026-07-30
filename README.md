@@ -187,7 +187,7 @@ Nothing here is required to run the app. Each variable switches on an optional f
 | `DATABASE_URL` | unset → file-backed | Postgres connection string. See [Storage backends](#storage-backends). |
 | `OPENAI_API_KEY` | unset | Photo room import and photoreal light-study re-lighting. |
 | `OPENAI_MODEL` | `gpt-5.6` | Vision model for photo import. |
-| `OPENAI_IMAGE_MODEL` | `gpt-image-1` | Image model for re-lighting. |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-1` | Image model for re-lighting and Image Generation Day. Set `gpt-image-2` if your account has it — faster and more faithful to the source photo. |
 | `LIGHT_STUDY_MOCK` | `false` | Canned re-lighting responses — exercise the whole flow with no key and no billing. |
 | `IMAGE_DAY_MOCK` | `false` | Same, for Image Generation Day. |
 | `ROOM_PHOTO_MOCK` | `false` | Same, for photo import. |

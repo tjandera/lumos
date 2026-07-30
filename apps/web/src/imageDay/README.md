@@ -73,8 +73,25 @@ Six moments is six billed image-model calls and roughly four minutes. So:
 | --- | --- |
 | `OPENAI_API_KEY` | Required for real generation. |
 | `OPENAI_MODEL` | Vision model for stage 1. Default `gpt-5.6`. |
-| `OPENAI_IMAGE_MODEL` | Image model for stage 2. Default `gpt-image-1`. |
+| `OPENAI_IMAGE_MODEL` | Image model for stage 2. Default `gpt-image-1` (the widely-available one). Set `gpt-image-2` if your account has it — measured ~3x faster (31s vs 92s per image) and noticeably more faithful to the input: given the same prompt, `gpt-image-1` invented a window frame that wasn't in the source, `gpt-image-2` didn't. Fidelity to the user's actual room is the whole point here, so prefer it. |
 | `IMAGE_DAY_MOCK=true` | Echo the photo back instead of calling either model — exercises the whole flow for free. |
+
+## Gotchas
+
+**`.env` is read once, at startup.** `index.ts` calls `process.loadEnvFile` when the
+process boots, and `tsx watch` only restarts on *source* changes — so editing `.env` does
+nothing until you actually restart the API. A stale process holding a revoked key produces
+exactly the same error as a genuinely bad key. If a key change appears to have no effect,
+check the process is younger than the file:
+
+```bash
+stat -f '%Sm' apps/api/.env          # when the key was saved
+ps -o lstart= -p $(lsof -ti:8787)    # when the server started
+```
+
+**Only one `OPENAI_API_KEY=` line.** Appending with `>>` leaves duplicates; the last one
+silently wins, which makes for a confusing debug session. Replace the line rather than
+appending.
 
 ## Privacy
 
