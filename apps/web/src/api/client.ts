@@ -1,6 +1,19 @@
 import { coarsenDocumentForSharing, type SceneDocument } from "@interior/core";
 
-const BASE_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+/**
+ * Where the browser looks for apps/api.
+ *
+ * In dev this defaults to the same-origin `/api` path that vite.config.ts proxies to
+ * 127.0.0.1:8787, so `pnpm dev` just works. It used to default to localhost:3001 — the
+ * port docker-compose publishes — which meant every API-backed feature reported itself
+ * as unavailable under `pnpm dev` unless you happened to also have compose running.
+ *
+ * In a built bundle the default stays 3001 for compose, where nginx serves the static
+ * files and does not proxy. Behind the Kubernetes ingress, build with
+ * VITE_API_URL=/api instead (see deploy/README.md).
+ */
+const BASE_URL: string =
+  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "/api" : "http://localhost:3001");
 
 export type CatalogCategory =
   | "sofa"

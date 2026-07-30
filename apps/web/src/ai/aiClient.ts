@@ -12,7 +12,9 @@
 import { iterateSSE, type ChatMessage, type TurnEvent } from "@interior/ai";
 import type { SceneDocument } from "@interior/core";
 
-const BASE_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+// Same default as api/client.ts: `/api` in dev goes through the Vite proxy to :8787.
+const BASE_URL: string =
+  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "/api" : "http://localhost:3001");
 
 export interface StreamChatInput {
   document: SceneDocument;
