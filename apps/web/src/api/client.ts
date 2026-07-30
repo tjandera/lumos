@@ -234,3 +234,80 @@ export async function relightFrame(
     body: JSON.stringify({ frameDataUrl, preset })
   });
 }
+
+// --- Image Generation Day ------------------------------------------------------
+// A user's own room photograph, shown under the daylight it actually gets at
+// different hours. Distinct from the light study above, which re-lights frames the
+// 3D renderer produced.
+
+export interface ImageDayStatus {
+  available: boolean;
+  mock: boolean;
+  moments: string[];
+  imageModel: string;
+}
+
+export interface RoomLightContext {
+  roomType: string;
+  windows: string;
+  materials: string;
+  lamps: string;
+  cameraView: string;
+}
+
+export interface ImageDaySite {
+  lat: number;
+  lng: number;
+  trueNorthOffsetDeg: number;
+  /** ISO date (YYYY-MM-DD) of the day being simulated. */
+  date: string;
+}
+
+export interface ImageDayMoment {
+  id: string;
+  label: string;
+  minutes: number;
+  altitudeDeg: number;
+  bearingDeg: number | null;
+  afterDark: boolean;
+}
+
+export interface ImageDaySchedule {
+  kind: "normal" | "polarDay" | "polarNight";
+  moments: ImageDayMoment[];
+  sunriseMinutes: number | null;
+  sunsetMinutes: number | null;
+}
+
+export async function getImageDayStatus(): Promise<ImageDayStatus> {
+  return request<ImageDayStatus>("/image-day/status");
+}
+
+/** Real sunrise/sunset and per-moment sun angles. Costs nothing — no model runs. */
+export async function getImageDaySchedule(site: ImageDaySite): Promise<ImageDaySchedule> {
+  return request<ImageDaySchedule>("/image-day/schedule", {
+    method: "POST",
+    body: JSON.stringify(site)
+  });
+}
+
+/** Read the room once so every generated moment describes the same room. */
+export async function analyzeRoomPhoto(imageDataUrl: string): Promise<{ context: RoomLightContext }> {
+  return request<{ context: RoomLightContext }>("/image-day/analyze", {
+    method: "POST",
+    body: JSON.stringify({ imageDataUrl })
+  });
+}
+
+/** Generate one moment. One image-model call; the client drives the sequence. */
+export async function generateImageDayMoment(
+  imageDataUrl: string,
+  moment: string,
+  site: ImageDaySite,
+  context?: RoomLightContext
+): Promise<{ imageDataUrl: string; moment: ImageDayMoment; mock: boolean }> {
+  return request<{ imageDataUrl: string; moment: ImageDayMoment; mock: boolean }>("/image-day/generate", {
+    method: "POST",
+    body: JSON.stringify({ imageDataUrl, moment, site, context })
+  });
+}

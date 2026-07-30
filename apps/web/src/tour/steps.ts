@@ -60,6 +60,13 @@ export const TOUR_STEPS: TourStep[] = [
     side: 'bottom',
   },
   {
+    id: 'image-day',
+    target: 'image-day',
+    title: 'Your own room, across the day',
+    body: 'Upload a photo of a real room and an image model shows it at dawn, midday, golden hour and dusk — using the true sun for your location and today’s date. Generate a single moment, or the whole timelapse.',
+    side: 'bottom',
+  },
+  {
     id: 'ai',
     target: 'ai-panel',
     title: 'AI assistant',

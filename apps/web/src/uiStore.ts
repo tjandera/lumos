@@ -90,6 +90,9 @@ interface UiStore {
   // --- Light study: a scrubbable stack of real renders across one day ---
   lightStudyOpen: boolean;
   toggleLightStudy: () => void;
+  /** "Image Generation Day": a user's own room photo re-lit across the real day. */
+  imageDayOpen: boolean;
+  toggleImageDay: () => void;
   /** Set to start a capture run; LightStudyCapture clears it once it takes over. */
   lightStudyRequested: boolean;
   lightStudyBusy: boolean;
@@ -226,6 +229,8 @@ export const useUiStore = create<UiStore>()((set) => ({
 
   lightStudyOpen: false,
   toggleLightStudy: () => set((s) => ({ lightStudyOpen: !s.lightStudyOpen })),
+  imageDayOpen: false,
+  toggleImageDay: () => set((s) => ({ imageDayOpen: !s.imageDayOpen })),
   lightStudyRequested: false,
   lightStudyBusy: false,
   lightStudyProgress: 0,

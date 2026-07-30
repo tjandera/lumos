@@ -1,0 +1,247 @@
+/**
+ * The handful of moments a day's light actually turns on, derived from the real sun for
+ * a given place and date.
+ *
+ * This exists so image generation can be told what the light is *physically doing* —
+ * "sun 8° above the horizon, bearing 112°, forty minutes after sunrise" — rather than
+ * being asked for a vibe like "make it morning". The times are real: solar noon in
+ * Reykjavík in December is a different animal from solar noon in Singapore, and the
+ * generated images should reflect that.
+ *
+ * Pure maths, no rendering and no network, so it's cheap to test against known places.
+ */
+import { daylightTimes, sunVector } from './sunlight.js';
+import { RAD2DEG } from './units.js';
+
+export type DayMomentId = 'dawn' | 'earlyMorning' | 'midday' | 'afternoon' | 'goldenHour' | 'dusk';
+
+export const DAY_MOMENT_IDS: readonly DayMomentId[] = [
+  'dawn',
+  'earlyMorning',
+  'midday',
+  'afternoon',
+  'goldenHour',
+  'dusk',
+];
+
+export interface DayMoment {
+  id: DayMomentId;
+  label: string;
+  /** Local clock time, minutes from midnight. */
+  minutes: number;
+  /** Sun altitude in degrees. Negative means below the horizon. */
+  altitudeDeg: number;
+  /**
+   * Sun bearing in degrees clockwise from the building's true north, or null when the
+   * sun is below the horizon and direction no longer means anything indoors.
+   */
+  bearingDeg: number | null;
+  /** Sun is below the horizon — whatever lamps exist are carrying the room. */
+  afterDark: boolean;
+}
+
+/** How the sky behaves on the requested date at the requested latitude. */
+export type DayKind = 'normal' | 'polarDay' | 'polarNight';
+
+export interface DayMomentSet {
+  kind: DayKind;
+  moments: DayMoment[];
+  sunriseMinutes: number | null;
+  sunsetMinutes: number | null;
+}
+
+const LABELS: Record<DayMomentId, string> = {
+  dawn: 'Dawn',
+  earlyMorning: 'Early morning',
+  midday: 'Midday',
+  afternoon: 'Afternoon',
+  goldenHour: 'Golden hour',
+  dusk: 'Dusk',
+};
+
+const MINUTES_PER_DAY = 1440;
+
+/** Wrap into [0, 1440) so an offset either side of midnight stays a valid clock time. */
+const wrapMinutes = (m: number): number => ((m % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+
+/**
+ * Clock times here are **local solar time at the room**, derived from longitude
+ * (15° per hour), not from the machine's timezone and not from a tz database.
+ *
+ * Using `getHours()` would read these instants in whatever timezone the browser or
+ * server happens to be in — London's sunrise shows up as 11:43 on a Singapore machine,
+ * which then reorders the whole day. Solar time is timezone-free, needs no dependency,
+ * and is the honest quantity for a feature about where the sun physically is; it lands
+ * within about half an hour of civil time, and ignores DST and political zone borders.
+ */
+const solarMinutes = (d: Date, lng: number): number =>
+  wrapMinutes(d.getUTCHours() * 60 + d.getUTCMinutes() + (lng / 15) * 60);
+
+/** The absolute instant at a given local-solar clock time on `date`'s UTC day. */
+const atSolarMinutes = (date: Date, minutes: number, lng: number): Date => {
+  const utcMinutes = wrapMinutes(minutes) - (lng / 15) * 60;
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCMinutes(d.getUTCMinutes() + utcMinutes);
+  return d;
+};
+
+const COMPASS = [
+  'north',
+  'north-northeast',
+  'northeast',
+  'east-northeast',
+  'east',
+  'east-southeast',
+  'southeast',
+  'south-southeast',
+  'south',
+  'south-southwest',
+  'southwest',
+  'west-southwest',
+  'west',
+  'west-northwest',
+  'northwest',
+  'north-northwest',
+] as const;
+
+/** Compass bearing in degrees → the nearest 16-point name. */
+export function compassName(bearingDeg: number): string {
+  const i = Math.round(wrapDegrees(bearingDeg) / 22.5) % 16;
+  return COMPASS[i]!;
+}
+
+const wrapDegrees = (d: number): number => ((d % 360) + 360) % 360;
+
+/**
+ * Sample the sun at one instant, in the building's own frame.
+ *
+ * `sunVector` already folds in `trueNorthOffsetDeg`, so x/z here are relative to the
+ * room's axes; atan2(x, z) turns that back into a bearing where 0 is the room's north.
+ */
+function sampleSun(
+  lat: number,
+  lng: number,
+  when: Date,
+  trueNorthOffsetDeg: number,
+): { altitudeDeg: number; bearingDeg: number | null } {
+  const v = sunVector(lat, lng, when, trueNorthOffsetDeg);
+  const altitudeDeg = v.altitude * RAD2DEG;
+  if (altitudeDeg <= 0) return { altitudeDeg, bearingDeg: null };
+  return { altitudeDeg, bearingDeg: wrapDegrees(Math.atan2(v.x, v.z) * RAD2DEG) };
+}
+
+/**
+ * The six moments worth generating for a location and date.
+ *
+ * Anchored to real sunrise / solar noon / sunset rather than fixed clock hours, so
+ * "golden hour" is genuinely the hour before that day's sunset wherever you are. Inside
+ * the polar circles there may be no sunrise or sunset at all; those days are spread
+ * evenly across 24 hours instead, and reported via `kind` so the caller can say so.
+ */
+export function dayMoments(
+  lat: number,
+  lng: number,
+  date: Date,
+  trueNorthOffsetDeg = 0,
+): DayMomentSet {
+  const times = daylightTimes(lat, lng, date);
+  const noonMin = solarMinutes(times.solarNoon, lng);
+
+  const sample = (minutes: number) =>
+    sampleSun(lat, lng, atSolarMinutes(date, minutes, lng), trueNorthOffsetDeg);
+
+  // No sunrise/sunset: either the sun never sets or it never rises. `daylightTimes`
+  // reports both as nulls, so the altitude at solar noon is what tells them apart.
+  if (!times.sunrise || !times.sunset) {
+    const noonAlt = sample(noonMin).altitudeDeg;
+    const kind: DayKind = noonAlt > 0 ? 'polarDay' : 'polarNight';
+    const moments = DAY_MOMENT_IDS.map((id, i) => {
+      // Spread across the whole 24 hours, centred on solar noon.
+      const minutes = wrapMinutes(noonMin + (i - 2.5) * (MINUTES_PER_DAY / DAY_MOMENT_IDS.length));
+      const s = sample(minutes);
+      return {
+        id,
+        label: LABELS[id],
+        minutes,
+        altitudeDeg: s.altitudeDeg,
+        bearingDeg: s.bearingDeg,
+        afterDark: s.altitudeDeg <= 0,
+      };
+    });
+    return { kind, moments, sunriseMinutes: null, sunsetMinutes: null };
+  }
+
+  const riseMin = solarMinutes(times.sunrise, lng);
+  const setMin = solarMinutes(times.sunset, lng);
+
+  // Fractions of the real morning/afternoon rather than fixed clock offsets, so these
+  // stay meaningful on a 6-hour winter day as well as an 16-hour summer one.
+  const offsets: Record<DayMomentId, number> = {
+    dawn: riseMin - 30,
+    earlyMorning: riseMin + (noonMin - riseMin) * 0.35,
+    midday: noonMin,
+    afternoon: noonMin + (setMin - noonMin) * 0.45,
+    goldenHour: setMin - 45,
+    dusk: setMin + 25,
+  };
+
+  const moments = DAY_MOMENT_IDS.map((id) => {
+    const minutes = wrapMinutes(Math.round(offsets[id]));
+    const s = sample(minutes);
+    return {
+      id,
+      label: LABELS[id],
+      minutes,
+      altitudeDeg: s.altitudeDeg,
+      bearingDeg: s.bearingDeg,
+      afterDark: s.altitudeDeg <= 0,
+    };
+  });
+
+  return { kind: 'normal', moments, sunriseMinutes: riseMin, sunsetMinutes: setMin };
+}
+
+/**
+ * A plain-language account of what the sun is doing, for an image prompt.
+ *
+ * Deliberately physical and specific — angle, direction, how hard the shadows are — since
+ * that is what an image model can act on. "Golden hour" alone gets you a stock filter;
+ * "sun 6° above the horizon from the west-southwest, long shadows raking across the
+ * floor" gets you this room at that hour.
+ */
+export function describeMoment(m: DayMoment): string {
+  if (m.afterDark) {
+    return m.id === 'dusk'
+      ? 'The sun has just set. Cool blue ambient light from the sky through the windows, no direct sunbeams, ' +
+          'and the room’s own lamps now providing most of the visible light with warm pools around them.'
+      : 'The sun is below the horizon. The room is lit only by dim ambient skylight and whatever lamps are on, ' +
+          'with deep shadows and very low contrast.';
+  }
+
+  const alt = Math.round(m.altitudeDeg);
+  const dir = m.bearingDeg === null ? 'the window side' : `the ${compassName(m.bearingDeg)}`;
+
+  if (alt < 12) {
+    return (
+      `Low sun about ${alt}° above the horizon, shining in from ${dir}. ` +
+      'Long raking shadows stretched across the floor, warm golden-orange light with a strong directional beam ' +
+      'through the windows, and bright highlights where it lands.'
+    );
+  }
+  if (alt < 35) {
+    return (
+      `Sun about ${alt}° above the horizon, from ${dir}. ` +
+      'Clear directional daylight with well-defined shadows angled across the room and a warm, bright cast on the surfaces it reaches.'
+    );
+  }
+  return (
+    `High sun about ${alt}° above the horizon, from ${dir}. ` +
+    'Bright neutral daylight, short shadows pooled close beneath furniture, and strong even illumination through the windows.'
+  );
+}
+
+/** `540` → `"09:00"`. */
+export function formatClock(minutes: number): string {
+  const m = wrapMinutes(Math.round(minutes));
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}

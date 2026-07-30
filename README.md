@@ -55,6 +55,11 @@ lux heatmap against lighting standards, and a daylight model where aperture area
 and curtains/blinds actually govern how much light reaches the interior — including all
 the way down to a dark room when there's nothing to light it.
 
+**Study your own room.** *Image Generation Day* takes a photo of a real room and shows it
+under the daylight that room actually gets — dawn, midday, golden hour, dusk — with sun
+angles computed for your building and date. Generate one moment, or the whole timelapse.
+See [`apps/web/src/imageDay/`](apps/web/src/imageDay/README.md).
+
 **Study the day.** Render one frame per hour across 24 hours and scrub through them, or
 play it back. Every frame is a real render at that hour's true sun position. With an
 OpenAI key, any single frame can additionally be re-lit photorealistically into one of
@@ -184,6 +189,7 @@ Nothing here is required to run the app. Each variable switches on an optional f
 | `OPENAI_MODEL` | `gpt-5.6` | Vision model for photo import. |
 | `OPENAI_IMAGE_MODEL` | `gpt-image-1` | Image model for re-lighting. |
 | `LIGHT_STUDY_MOCK` | `false` | Canned re-lighting responses — exercise the whole flow with no key and no billing. |
+| `IMAGE_DAY_MOCK` | `false` | Same, for Image Generation Day. |
 | `ROOM_PHOTO_MOCK` | `false` | Same, for photo import. |
 | `FEATURE_AI` | `true` | Registers the chat assistant routes. |
 | `AI_PROVIDER_BASE_URL` / `AI_MODEL` / `AI_PROVIDER_API_KEY` | unset | An OpenAI-compatible endpoint for the chat assistant. Unset → built-in offline mock. |
@@ -211,6 +217,11 @@ key at all via a built-in offline responder, so the button is never a dead end.
 **Photo room import** (`FEATURE_ROOM_PHOTO`). Upload a photo of a room; a vision model
 proposes a `RoomPhotoProposal`, which deterministic code validates and materializes into a
 real `SceneDocument`. The proposal is schema-checked before anything touches the document.
+
+**Image Generation Day.** A photo of a real room, re-lit across that day's real sun. A
+vision pass reads the room once so every generated hour keeps the same furniture and
+windows; `images.edit` then transforms the photo rather than inventing a room. Six moments,
+individually or as a timelapse, cached in IndexedDB because each one is a billed call.
 
 **Photoreal light study.** The 24-hour day cycle is rendered locally and is the
 physically-accurate one. On top of it, a single frame can be re-lit into one of five moods

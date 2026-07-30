@@ -21,6 +21,8 @@ import { createPgPool, ensurePgSchema, pingPgPool, type PgPool } from "./db/pool
 import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
 import { lightStudyRoutes } from "./lightStudy/routes.js";
 import type { LightStudyConfig } from "./lightStudy/openai.js";
+import { imageDayRoutes } from "./imageDay/routes.js";
+import type { ImageDayConfig } from "./imageDay/openai.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,8 +77,10 @@ export interface BuildAppOptions {
    * doesn't need this at all.
    */
   lightStudy?: LightStudyConfig;
+  imageDay?: ImageDayConfig;
   /** Override the light-study route's rate-limit window/max (tests). */
   lightStudyRateLimit?: RateLimitOptions;
+  imageDayRateLimit?: RateLimitOptions;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -177,6 +181,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         mock: process.env.LIGHT_STUDY_MOCK === "true"
       },
     checkRateLimit: lightStudyRateLimit
+  });
+  // "Image Generation Day": a user's own room photo re-lit across the real day. Shares
+  // the light study's budget rationale — one image model call per moment — but gets its
+  // own limiter so a six-frame timelapse can't starve the single-frame relight feature.
+  const imageDayRateLimit = createRateLimiter(options.imageDayRateLimit ?? { windowMs: 5 * 60_000, max: 30 });
+  await app.register(imageDayRoutes, {
+    config:
+      options.imageDay ?? {
+        apiKey: process.env.OPENAI_API_KEY,
+        visionModel: process.env.OPENAI_MODEL ?? 'gpt-5.6',
+        imageModel: process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1',
+        mock: process.env.IMAGE_DAY_MOCK === 'true' || process.env.LIGHT_STUDY_MOCK === 'true'
+      },
+    checkRateLimit: imageDayRateLimit
   });
   await app.register(designRoutes, { storage, ownership, tokens });
   await app.register(shareRoutes, { storage, tokens });

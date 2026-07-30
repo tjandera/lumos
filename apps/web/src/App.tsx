@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles, HelpCircle } from 'lucide-react';
+import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles, HelpCircle, Image as ImageIcon } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -24,6 +24,7 @@ import { PhotoResultModal } from './PhotoResultModal';
 import { LocationPicker } from './location/LocationPicker';
 import { DarkRoomNotice } from './DarkRoomNotice';
 import { LightStudyPanel } from './LightStudyPanel';
+import { ImageDayPanel } from './imageDay/ImageDayPanel';
 import { Tour } from './tour/Tour';
 import { tourSeen } from './tour/steps';
 import { useLightStudyStatus } from './useLightStudyStatus';
@@ -66,6 +67,7 @@ export default function App() {
       <PhotoResultModal />
       <LocationPicker />
       <LightStudyPanel />
+      <ImageDayPanel />
       <Tour />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
@@ -94,6 +96,8 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
   const requestPhoto = useUiStore((s) => s.requestPhoto);
   const lightStudyOpen = useUiStore((s) => s.lightStudyOpen);
   const toggleLightStudy = useUiStore((s) => s.toggleLightStudy);
+  const imageDayOpen = useUiStore((s) => s.imageDayOpen);
+  const toggleImageDay = useUiStore((s) => s.toggleImageDay);
   const aiRelight = useLightStudyStatus();
 
   const seg = (active: boolean) =>
@@ -193,6 +197,18 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
             {/* The AI pass lives two clicks inside this panel, so surface that it exists
                 at all from the toolbar rather than only once you're already in there. */}
             {aiRelight.available && <Sparkles size={11} className="text-amber-300/90" />}
+          </button>
+          {/* Distinct from Day: that renders our 3D scene, this re-lights a photo of a
+              real room. Violet rather than amber so the two read as different tools. */}
+          <button
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+              imageDayOpen ? 'bg-violet-500/25 text-violet-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
+            }`}
+            onClick={toggleImageDay}
+            data-tour="image-day"
+            title="Image Generation Day — upload a photo of a real room and generate it under the day's real daylight"
+          >
+            <ImageIcon size={13} /> Image Day
           </button>
         </>
       )}
