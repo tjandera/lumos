@@ -1,5 +1,6 @@
 import OpenAI, { toFile } from 'openai';
 import { describeMoment, formatClock, type DayMoment } from '@interior/core';
+import { describeOpenAiError } from '../openaiErrors.js';
 
 /**
  * "Image Generation Day" — take a photograph of a real room and show it under the light
@@ -24,7 +25,12 @@ import { describeMoment, formatClock, type DayMoment } from '@interior/core';
  */
 
 export class ImageDayConfigError extends Error {}
-export class ImageDayUpstreamError extends Error {}
+export class ImageDayUpstreamError extends Error {
+  /** What the route should return — a bad key is our 503, not OpenAI's 502. */
+  constructor(message: string, readonly httpStatus = 502) {
+    super(message);
+  }
+}
 
 export interface ImageDayConfig {
   apiKey?: string;
@@ -214,9 +220,9 @@ export async function generateMoment(
       n: 1,
     });
   } catch (err) {
-    throw new ImageDayUpstreamError(
-      err instanceof Error ? `Image model call failed: ${err.message}` : 'Image model call failed',
-    );
+    // Never forward OpenAI's own text: its 401 embeds a partially-masked key.
+    const { message, httpStatus } = describeOpenAiError(err);
+    throw new ImageDayUpstreamError(message, httpStatus);
   }
 
   const b64 = result?.data?.[0]?.b64_json;

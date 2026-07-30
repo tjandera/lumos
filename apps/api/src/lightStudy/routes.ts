@@ -64,7 +64,9 @@ export async function lightStudyRoutes(
         return reply.code(503).send({ error: err.message });
       }
       if (err instanceof LightStudyUpstreamError) {
-        return reply.code(502).send({ error: err.message });
+        // The sanitiser picks the status: a rejected key is our misconfiguration (503),
+        // a rate limit is 429, an OpenAI outage is 502.
+        return reply.code(err.httpStatus).send({ error: err.message });
       }
       request.log.error(err);
       return reply.code(500).send({ error: 'Unexpected server error' });

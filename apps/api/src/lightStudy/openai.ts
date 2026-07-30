@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from 'openai';
+import { describeOpenAiError } from '../openaiErrors.js';
 
 /**
  * Photoreal re-lighting of a light-study frame.
@@ -14,7 +15,11 @@ import OpenAI, { toFile } from 'openai';
 /** No API key configured server-side — surface as "not set up", not a transient fault. */
 export class LightStudyConfigError extends Error {}
 /** The call succeeded but returned nothing usable. Never crash on this. */
-export class LightStudyUpstreamError extends Error {}
+export class LightStudyUpstreamError extends Error {
+  constructor(message: string, readonly httpStatus = 502) {
+    super(message);
+  }
+}
 
 /** The lighting moments worth generating. Keyed by id so the client and cache agree. */
 export const LIGHT_PRESETS = {
@@ -105,9 +110,8 @@ export async function relightFrame(
       n: 1,
     });
   } catch (err) {
-    throw new LightStudyUpstreamError(
-      err instanceof Error ? `Image model call failed: ${err.message}` : 'Image model call failed',
-    );
+    const { message, httpStatus } = describeOpenAiError(err);
+    throw new LightStudyUpstreamError(message, httpStatus);
   }
 
   const b64 = result?.data?.[0]?.b64_json;

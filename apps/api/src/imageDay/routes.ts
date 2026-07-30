@@ -81,7 +81,7 @@ export async function imageDayRoutes(
       return { context };
     } catch (err) {
       if (err instanceof ImageDayConfigError) return reply.code(503).send({ error: err.message });
-      return reply.code(502).send({ error: err instanceof Error ? err.message : 'Analysis failed' });
+      return reply.code(502).send({ error: 'Analysis failed' });
     }
   });
 
@@ -120,8 +120,12 @@ export async function imageDayRoutes(
       return { imageDataUrl: imageUrl, moment, mock: config.mock };
     } catch (err) {
       if (err instanceof ImageDayConfigError) return reply.code(503).send({ error: err.message });
-      if (err instanceof ImageDayUpstreamError) return reply.code(502).send({ error: err.message });
-      return reply.code(502).send({ error: err instanceof Error ? err.message : 'Generation failed' });
+      // The sanitiser picks the status: a rejected key is our misconfiguration (503),
+      // a rate limit is 429, an OpenAI outage is 502.
+      if (err instanceof ImageDayUpstreamError) {
+        return reply.code(err.httpStatus).send({ error: err.message });
+      }
+      return reply.code(502).send({ error: 'Generation failed' });
     }
   });
 
