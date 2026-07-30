@@ -56,9 +56,11 @@ and curtains/blinds actually govern how much light reaches the interior — incl
 the way down to a dark room when there's nothing to light it.
 
 **Study your own room.** *Image Generation Day* takes a photo of a real room and shows it
-under the daylight that room actually gets — dawn, midday, golden hour, dusk — with sun
-angles computed for your building and date. Generate one moment, or the whole timelapse.
-See [`apps/web/src/imageDay/`](apps/web/src/imageDay/README.md).
+under the daylight that room actually gets, across twelve moments covering the full 24
+hours — solar midnight, pre-dawn, dawn, sunrise, morning, noon, afternoon, golden hour,
+sunset, dusk — with sun angles computed for your building and date. Generate a single
+moment, or the whole timelapse, then download the set as a ZIP with a manifest of times
+and sun positions. See [`apps/web/src/imageDay/`](apps/web/src/imageDay/README.md).
 
 **Study the day.** Render one frame per hour across 24 hours and scrub through them, or
 play it back. Every frame is a real render at that hour's true sun position. With an

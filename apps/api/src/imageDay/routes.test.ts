@@ -27,7 +27,10 @@ describe('image-day routes', () => {
     const res = await app.inject({ method: 'GET', url: '/image-day/status' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ available: true, mock: true, imageModel: 'i' });
-    expect(res.json().moments).toHaveLength(6);
+    // A full 24h cycle, night through evening twilight.
+    expect(res.json().moments).toHaveLength(12);
+    expect(res.json().moments).toContain('night');
+    expect(res.json().moments).toContain('sunrise');
   });
 
   it('is unavailable, but does not error, with no key and no mock', async () => {
@@ -42,7 +45,7 @@ describe('image-day routes', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.kind).toBe('normal');
-    expect(body.moments).toHaveLength(6);
+    expect(body.moments).toHaveLength(12);
     // London midsummer: the sun genuinely is up before 4am solar time.
     expect(body.sunriseMinutes).toBeLessThan(5 * 60);
   });

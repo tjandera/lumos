@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Upload, Sparkles, Loader2, Play, Pause, RefreshCw, Sun, Trash2, Download } from 'lucide-react';
+import { X, Upload, Sparkles, Loader2, Play, Pause, RefreshCw, Sun, Trash2, Download, Package } from 'lucide-react';
 import { formatClock } from '@interior/core';
 import { useUiStore } from '../uiStore';
 import { useSceneStore } from '../store';
@@ -14,6 +14,7 @@ import {
   type RoomLightContext,
 } from '../api/client';
 import { frameKey, readFrame, readRun, writeFrame, fingerprintPhoto } from './cache';
+import { bytesFromDataUrl, createZip, downloadBlob, safeName } from './zip';
 
 /** Frames are held at full size in memory; playback just swaps the src. */
 const PLAYBACK_MS = 900;
@@ -23,6 +24,9 @@ interface Frame {
   label: string;
   minutes: number;
   imageDataUrl: string;
+  /** Kept so the exported archive can describe the light in each shot. */
+  altitudeDeg?: number;
+  bearingDeg?: number | null;
 }
 
 /**
@@ -164,6 +168,8 @@ export function ImageDayPanel() {
                 label: r.moment.label,
                 minutes: r.moment.minutes,
                 imageDataUrl: r.imageDataUrl,
+                altitudeDeg: r.moment.altitudeDeg,
+                bearingDeg: r.moment.bearingDeg,
               }));
 
           if (!hit) {
@@ -191,6 +197,67 @@ export function ImageDayPanel() {
     },
     [photo, schedule, ensureContext, site.lat, site.lng, site.trueNorthOffsetDeg, site.date],
   );
+
+  /**
+   * Everything generated so far, as one ZIP.
+   *
+   * Includes a manifest, because a folder of a dozen room photos is meaningless without
+   * knowing which hour each one is and where the sun was — that context is the whole
+   * point of the feature and would otherwise be lost the moment the files leave the app.
+   * Exports whatever exists rather than requiring a complete run: a partial day is still
+   * worth keeping, and it was still paid for.
+   */
+  const downloadAll = useCallback(() => {
+    if (frames.length === 0) return;
+    const stamp = `${site.date}`;
+    const order = schedule?.moments.map((m) => m.id) ?? [];
+    const ordered = [...frames].sort((a, b) => order.indexOf(a.momentId) - order.indexOf(b.momentId));
+
+    const manifest = [
+      'Image Generation Day',
+      '',
+      `Date          : ${stamp}`,
+      `Location      : ${site.lat.toFixed(4)}, ${site.lng.toFixed(4)}`,
+      `Room rotation : ${Math.round(site.trueNorthOffsetDeg)}° from true north`,
+      schedule?.sunriseMinutes != null && schedule?.sunsetMinutes != null
+        ? `Sunrise/sunset: ${formatClock(schedule.sunriseMinutes)} / ${formatClock(schedule.sunsetMinutes)} (local solar time)`
+        : `Sky           : ${schedule?.kind === 'polarDay' ? 'midnight sun' : 'polar night'}`,
+      `Model         : ${status?.imageModel ?? 'unknown'}${status?.mock ? ' (mock — images are echoes of the source)' : ''}`,
+      '',
+      `${ordered.length} of ${order.length} moments generated.`,
+      '',
+      'File                                  Time   Sun',
+      '--------------------------------------------------------------',
+      ...ordered.map((f, i) => {
+        const name = `${String(i + 1).padStart(2, '0')}-${safeName(f.momentId)}.png`;
+        // `bearingDeg` is null exactly when core considers the sun down, so keying off
+        // it keeps this line agreeing with the image. Testing `altitude <= 0` instead
+        // reported sunset as "below horizon (-0.0°)" while the prompt — correctly, since
+        // refraction still shows the disc — had asked for a sun sitting on the horizon.
+        const sun =
+          f.altitudeDeg === undefined
+            ? '—'
+            : f.bearingDeg == null
+              ? `below horizon (${f.altitudeDeg.toFixed(1)}°)`
+              : `${Math.max(0, f.altitudeDeg).toFixed(0)}° up, bearing ${Math.round(f.bearingDeg)}°`;
+        return `${name.padEnd(38)}${formatClock(f.minutes).padEnd(7)}${sun}`;
+      }),
+      '',
+      'Times are local solar time. Sun bearing is relative to the room, clockwise.',
+      'Images are AI-generated from a photograph; treat them as a guide, not a measurement.',
+      '',
+    ].join('\n');
+
+    const zip = createZip([
+      { name: 'README.txt', bytes: new TextEncoder().encode(manifest) },
+      ...ordered.map((f, i) => ({
+        // Numbered so a plain alphabetical file listing is still in time order.
+        name: `${String(i + 1).padStart(2, '0')}-${safeName(f.momentId)}.png`,
+        bytes: bytesFromDataUrl(f.imageDataUrl),
+      })),
+    ]);
+    downloadBlob(zip, `room-day-${stamp}.zip`);
+  }, [frames, schedule, site.date, site.lat, site.lng, site.trueNorthOffsetDeg, status]);
 
   if (!open) return null;
 
@@ -369,12 +436,19 @@ export function ImageDayPanel() {
                       {frames.length} of {allIds.length} moments · cached, so reopening is free
                     </span>
                     <div className="flex gap-2">
+                      <button
+                        className="inline-flex items-center gap-1 rounded bg-violet-500/20 px-2 py-1 text-violet-100 hover:bg-violet-500/30"
+                        onClick={downloadAll}
+                        title={`Download all ${frames.length} images as a ZIP, with a manifest of times and sun angles`}
+                      >
+                        <Package size={12} /> Download all ({frames.length})
+                      </button>
                       <a
                         href={current.imageDataUrl}
                         download={`room-${current.momentId}.png`}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-white/55 hover:bg-white/10"
                       >
-                        <Download size={12} /> Save
+                        <Download size={12} /> This one
                       </a>
                       <button
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-white/55 hover:bg-white/10"

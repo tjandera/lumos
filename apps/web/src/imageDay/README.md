@@ -52,9 +52,53 @@ Inside the polar circles there may be no sunrise at all. Those days are detected
 (`kind: 'polarDay' | 'polarNight'`), spread across 24 hours instead, and the prompt says
 so rather than quietly inventing a sunrise.
 
+## The twelve moments
+
+A full 24-hour cycle, anchored to genuine solar events rather than fixed hours:
+
+| | | |
+| --- | --- | --- |
+| `night` (solar midnight) | `preDawn` | `dawn` |
+| `sunrise` | `earlyMorning` | `lateMorning` |
+| `midday` (solar noon) | `earlyAfternoon` | `lateAfternoon` |
+| `goldenHour` | `sunset` | `dusk` |
+
+Twelve rather than a tidier six because the interesting transitions cluster at the ends:
+sunrise, golden hour, sunset and dusk all happen within a couple of hours of each other
+and look nothing alike, while the middle of the day changes slowly.
+
+Each carries a `phase` — `night`, `morningTwilight`, `day`, `eveningTwilight` — kept
+separate from altitude because "just below the horizon" and "the middle of the night" are
+both dark but want completely different images: one is a pale blue-grey sky with lamps
+starting to matter, the other is lamps and nothing else.
+
+**The horizon is at -0.833°, not 0.** Refraction lifts the disc by ~0.57° and its own
+radius adds ~0.27°, which is why almanacs put sunrise there. Using plain `altitude <= 0`
+marked the exact moment of sunrise as "after dark" — telling the image model there was no
+sun at the moment the sun is sitting on the horizon, which is the most dramatic light of
+the day.
+
+## Download
+
+**Download all (n)** builds a ZIP client-side and includes a `README.txt` manifest —
+date, location, room rotation, sunrise/sunset, model used, and a table of every image with
+its time and the sun's altitude and bearing. A folder of a dozen room photos is
+meaningless without knowing which hour each one is; that context is the point of the
+feature and would otherwise be lost the moment the files leave the app.
+
+Files are numbered `01-night.png` … `12-dusk.png` so a plain alphabetical listing is still
+in time order. Whatever has been generated is exported — a partial day is still worth
+keeping, and was still paid for.
+
+No zip dependency: every entry is a PNG, already DEFLATE-compressed internally, so
+re-deflating would cost CPU and typically *grow* the output. `STORE` is correct here and
+reduces the format to headers plus raw bytes (`zip.ts`, ~100 lines, tested against the
+byte layout).
+
 ## Cost and caching
 
-Six moments is six billed image-model calls and roughly four minutes. So:
+Twelve moments is twelve billed image-model calls — roughly six minutes on `gpt-image-2`,
+fifteen on `gpt-image-1`. So:
 
 - **One moment at a time is a first-class choice**, not a lesser one. Click a single
   moment chip to spend one image on the hour you care about.
@@ -65,7 +109,8 @@ Six moments is six billed image-model calls and roughly four minutes. So:
   as one request would sit far past most proxy timeouts and show nothing until the end;
   this way frames appear as they land, and one failure costs one moment rather than the run.
 - Rate limited to 30 requests per 5 minutes, separate from the light study's budget so a
-  timelapse can't starve single-frame re-lighting.
+  timelapse can't starve single-frame re-lighting — comfortably above a 12-image run plus
+  its analyse call.
 
 ## Configuration
 

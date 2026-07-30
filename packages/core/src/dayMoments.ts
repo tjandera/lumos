@@ -13,16 +13,52 @@
 import { daylightTimes, sunVector } from './sunlight.js';
 import { RAD2DEG } from './units.js';
 
-export type DayMomentId = 'dawn' | 'earlyMorning' | 'midday' | 'afternoon' | 'goldenHour' | 'dusk';
+export type DayMomentId =
+  | 'night'
+  | 'preDawn'
+  | 'dawn'
+  | 'sunrise'
+  | 'earlyMorning'
+  | 'lateMorning'
+  | 'midday'
+  | 'earlyAfternoon'
+  | 'lateAfternoon'
+  | 'goldenHour'
+  | 'sunset'
+  | 'dusk';
 
+/**
+ * A full 24 hours, in clock order.
+ *
+ * Anchored to genuine solar events — solar midnight, sunrise, solar noon, sunset — rather
+ * than fixed hours, so the set stretches and compresses with the real day. Twelve rather
+ * than a tidier six because the interesting transitions cluster at the ends: sunrise,
+ * golden hour, sunset and dusk all happen within a couple of hours of each other and look
+ * nothing alike, while the middle of the day changes slowly.
+ */
 export const DAY_MOMENT_IDS: readonly DayMomentId[] = [
+  'night',
+  'preDawn',
   'dawn',
+  'sunrise',
   'earlyMorning',
+  'lateMorning',
   'midday',
-  'afternoon',
+  'earlyAfternoon',
+  'lateAfternoon',
   'goldenHour',
+  'sunset',
   'dusk',
 ];
+
+/**
+ * Which part of the cycle a moment sits in.
+ *
+ * Kept separate from altitude because "just below the horizon" and "the middle of the
+ * night" are both `afterDark` but want completely different images — one is a bright
+ * blue-grey sky with lamps starting to matter, the other is lamps and nothing else.
+ */
+export type DayPhase = 'night' | 'morningTwilight' | 'day' | 'eveningTwilight';
 
 export interface DayMoment {
   id: DayMomentId;
@@ -38,6 +74,8 @@ export interface DayMoment {
   bearingDeg: number | null;
   /** Sun is below the horizon — whatever lamps exist are carrying the room. */
   afterDark: boolean;
+  /** Which part of the cycle this is, for prompts and UI grouping. */
+  phase: DayPhase;
 }
 
 /** How the sky behaves on the requested date at the requested latitude. */
@@ -51,11 +89,17 @@ export interface DayMomentSet {
 }
 
 const LABELS: Record<DayMomentId, string> = {
+  night: 'Night',
+  preDawn: 'Pre-dawn',
   dawn: 'Dawn',
+  sunrise: 'Sunrise',
   earlyMorning: 'Early morning',
+  lateMorning: 'Late morning',
   midday: 'Midday',
-  afternoon: 'Afternoon',
+  earlyAfternoon: 'Early afternoon',
+  lateAfternoon: 'Late afternoon',
   goldenHour: 'Golden hour',
+  sunset: 'Sunset',
   dusk: 'Dusk',
 };
 
@@ -113,6 +157,31 @@ export function compassName(bearingDeg: number): string {
 const wrapDegrees = (d: number): number => ((d % 360) + 360) % 360;
 
 /**
+ * Civil twilight is the usable one here: above about -6° there is still real light in the
+ * sky and a room reads as "early" rather than "dark". Below that, lamps are the story.
+ */
+const CIVIL_TWILIGHT_DEG = -6;
+
+/**
+ * The sun is *visible* slightly before its centre reaches geometric zero: atmospheric
+ * refraction lifts the disc by about 0.57°, and the disc's own radius adds another 0.27°.
+ * That is why almanacs put sunrise at a centre altitude of -0.833° rather than 0.
+ *
+ * Using plain `altitude <= 0` marked the moment of sunrise as "after dark", which would
+ * have told the image model there was no sun at the exact moment there is a sun sitting
+ * on the horizon — the most dramatic light of the whole day.
+ */
+const HORIZON_DEG = -0.833;
+
+function phaseFor(altitudeDeg: number, minutes: number, noonMin: number): DayPhase {
+  if (altitudeDeg > HORIZON_DEG) return 'day';
+  if (altitudeDeg <= CIVIL_TWILIGHT_DEG) return 'night';
+  // Which side of noon decides whether the light is arriving or leaving.
+  const beforeNoon = ((minutes - noonMin + 1440) % 1440) > 720;
+  return beforeNoon ? 'morningTwilight' : 'eveningTwilight';
+}
+
+/**
  * Sample the sun at one instant, in the building's own frame.
  *
  * `sunVector` already folds in `trueNorthOffsetDeg`, so x/z here are relative to the
@@ -126,7 +195,9 @@ function sampleSun(
 ): { altitudeDeg: number; bearingDeg: number | null } {
   const v = sunVector(lat, lng, when, trueNorthOffsetDeg);
   const altitudeDeg = v.altitude * RAD2DEG;
-  if (altitudeDeg <= 0) return { altitudeDeg, bearingDeg: null };
+  // Same threshold as `afterDark`: at sunrise the direction the light comes from is the
+  // single most important thing to tell the image model, so it must not be null there.
+  if (altitudeDeg <= HORIZON_DEG) return { altitudeDeg, bearingDeg: null };
   return { altitudeDeg, bearingDeg: wrapDegrees(Math.atan2(v.x, v.z) * RAD2DEG) };
 }
 
@@ -165,7 +236,8 @@ export function dayMoments(
         minutes,
         altitudeDeg: s.altitudeDeg,
         bearingDeg: s.bearingDeg,
-        afterDark: s.altitudeDeg <= 0,
+        afterDark: s.altitudeDeg <= HORIZON_DEG,
+        phase: phaseFor(s.altitudeDeg, minutes, noonMin),
       };
     });
     return { kind, moments, sunriseMinutes: null, sunsetMinutes: null };
@@ -175,14 +247,22 @@ export function dayMoments(
   const setMin = solarMinutes(times.sunset, lng);
 
   // Fractions of the real morning/afternoon rather than fixed clock offsets, so these
-  // stay meaningful on a 6-hour winter day as well as an 16-hour summer one.
+  // stay meaningful on a 6-hour winter day as well as a 16-hour summer one. The twilight
+  // moments use fixed minute offsets instead, because twilight length depends on latitude,
+  // not on how long the day is.
   const offsets: Record<DayMomentId, number> = {
-    dawn: riseMin - 30,
-    earlyMorning: riseMin + (noonMin - riseMin) * 0.35,
+    night: noonMin + 720, // solar midnight
+    preDawn: riseMin - 55,
+    dawn: riseMin - 22,
+    sunrise: riseMin + 4, // just clear of the horizon, so there is a visible sunbeam
+    earlyMorning: riseMin + (noonMin - riseMin) * 0.28,
+    lateMorning: riseMin + (noonMin - riseMin) * 0.68,
     midday: noonMin,
-    afternoon: noonMin + (setMin - noonMin) * 0.45,
-    goldenHour: setMin - 45,
-    dusk: setMin + 25,
+    earlyAfternoon: noonMin + (setMin - noonMin) * 0.3,
+    lateAfternoon: noonMin + (setMin - noonMin) * 0.62,
+    goldenHour: setMin - 40,
+    sunset: setMin - 4,
+    dusk: setMin + 26,
   };
 
   const moments = DAY_MOMENT_IDS.map((id) => {
@@ -194,7 +274,8 @@ export function dayMoments(
       minutes,
       altitudeDeg: s.altitudeDeg,
       bearingDeg: s.bearingDeg,
-      afterDark: s.altitudeDeg <= 0,
+      afterDark: s.altitudeDeg <= HORIZON_DEG,
+      phase: phaseFor(s.altitudeDeg, minutes, noonMin),
     };
   });
 
@@ -210,17 +291,40 @@ export function dayMoments(
  * floor" gets you this room at that hour.
  */
 export function describeMoment(m: DayMoment): string {
-  if (m.afterDark) {
-    return m.id === 'dusk'
-      ? 'The sun has just set. Cool blue ambient light from the sky through the windows, no direct sunbeams, ' +
-          'and the room’s own lamps now providing most of the visible light with warm pools around them.'
-      : 'The sun is below the horizon. The room is lit only by dim ambient skylight and whatever lamps are on, ' +
-          'with deep shadows and very low contrast.';
+  if (m.phase === 'night') {
+    return (
+      'The sun is well below the horizon and the sky gives almost nothing. No sunbeams and no ' +
+      'sun patches anywhere. The room is lit only by its own lamps — warm pools of light around ' +
+      'each fitting, deep shadow everywhere else, and windows reading as dark rectangles.'
+    );
   }
 
-  const alt = Math.round(m.altitudeDeg);
+  if (m.phase === 'morningTwilight') {
+    return (
+      'The sun has not risen yet, but the sky is already pale. Cool blue-grey ambient light through ' +
+      'the windows, no direct sunbeams and no cast sun patches, soft shadowless illumination, ' +
+      'and any lamps still on reading warm against the cold daylight.'
+    );
+  }
+
+  if (m.phase === 'eveningTwilight') {
+    return (
+      'The sun has just set. Cool blue ambient light from the sky through the windows, no direct ' +
+      'sunbeams, and the room’s own lamps now providing most of the visible light with warm pools ' +
+      'around them.'
+    );
+  }
+
+  const alt = Math.max(0, Math.round(m.altitudeDeg));
   const dir = m.bearingDeg === null ? 'the window side' : `the ${compassName(m.bearingDeg)}`;
 
+  if (alt <= 3) {
+    return (
+      `The sun is right at the horizon, about ${alt}° up, from ${dir}. ` +
+      'Intense low orange-red light streaming almost horizontally through the windows, extremely long ' +
+      'shadows thrown right across the floor and up the far wall, and a strong warm glow on everything it touches.'
+    );
+  }
   if (alt < 12) {
     return (
       `Low sun about ${alt}° above the horizon, shining in from ${dir}. ` +

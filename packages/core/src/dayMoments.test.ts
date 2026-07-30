@@ -37,7 +37,37 @@ describe('dayMoments', () => {
     }
     expect(byId(moments, 'dawn').afterDark).toBe(true);
     expect(byId(moments, 'dusk').afterDark).toBe(true);
+    expect(byId(moments, 'night').afterDark).toBe(true);
     expect(midday.afterDark).toBe(false);
+  });
+
+  it('covers the whole 24 hours, not just the daylight part', () => {
+    const { moments } = dayMoments(LONDON.lat, LONDON.lng, JUNE);
+    expect(moments).toHaveLength(12);
+    // Solar midnight through evening twilight: every phase represented.
+    expect(new Set(moments.map((m) => m.phase))).toEqual(
+      new Set(['night', 'morningTwilight', 'day', 'eveningTwilight']),
+    );
+    expect(byId(moments, 'night').minutes).toBeLessThan(60);
+  });
+
+  it('brackets sunrise and sunset with the real events', () => {
+    const s = dayMoments(LONDON.lat, LONDON.lng, JUNE);
+    // `sunrise`/`sunset` sit just inside the horizon crossing so there is a real beam.
+    expect(byId(s.moments, 'sunrise').afterDark).toBe(false);
+    expect(byId(s.moments, 'sunset').afterDark).toBe(false);
+    expect(byId(s.moments, 'sunrise').altitudeDeg).toBeLessThan(3);
+    expect(byId(s.moments, 'sunset').altitudeDeg).toBeLessThan(3);
+    // ...and the twilight moments either side of them are genuinely dark.
+    expect(byId(s.moments, 'dawn').afterDark).toBe(true);
+    expect(byId(s.moments, 'dusk').afterDark).toBe(true);
+  });
+
+  it('separates deep night from twilight — they need different images', () => {
+    const { moments } = dayMoments(LONDON.lat, LONDON.lng, JUNE);
+    expect(byId(moments, 'night').phase).toBe('night');
+    expect(byId(moments, 'dawn').phase).toBe('morningTwilight');
+    expect(byId(moments, 'dusk').phase).toBe('eveningTwilight');
   });
 
   it('tracks the real season — a London summer day is far longer than its winter one', () => {
@@ -130,6 +160,25 @@ describe('describeMoment', () => {
   it('calls out long raking shadows only for a low sun', () => {
     expect(describeMoment(byId(moments, 'goldenHour'))).toMatch(/long|raking/i);
     expect(describeMoment(byId(moments, 'midday'))).toMatch(/short/i);
+  });
+
+  it('describes deep night as lamps-only, not merely dim daylight', () => {
+    const text = describeMoment(byId(moments, 'night'));
+    expect(text).toMatch(/only by its own lamps/i);
+    expect(text).toMatch(/no sunbeams/i);
+  });
+
+  it('distinguishes morning twilight from evening twilight', () => {
+    const morning = describeMoment(byId(moments, 'dawn'));
+    const evening = describeMoment(byId(moments, 'dusk'));
+    expect(morning).toMatch(/has not risen yet/i);
+    expect(evening).toMatch(/has just set/i);
+    expect(morning).not.toBe(evening);
+  });
+
+  it('makes the horizon-crossing moments the most extreme light', () => {
+    expect(describeMoment(byId(moments, 'sunrise'))).toMatch(/right at the horizon/i);
+    expect(describeMoment(byId(moments, 'sunset'))).toMatch(/right at the horizon/i);
   });
 });
 
