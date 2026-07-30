@@ -254,10 +254,17 @@ each, because their leaves are real cut geometry rather than alpha cards.
 | Potted Plant | potted_plant_01 |
 | Small Plant | potted_plant_02 |
 
+A later pass added eleven more catalog entries from the same source —
+Ottoman_01, Rockingchair_01, WoodenChair_01, coffee_table_round_01,
+ClassicNightstand_01, ClassicConsole_01, Shelf_01,
+steel_frame_shelves_01, modern_ceiling_lamp_01, ceramic_vase_01,
+potted_plant_04 — and filled two of the earlier gaps with
+vintage_day_bed (Single Bed) and desk_lamp_arm_01 (Floor Lamp). 29
+assets, 4.5 MB total.
+
 Still on the original Kenney models (no suitable CC0 match): Double Bed,
-Single Bed, Floor Lamp, Rug, Round Rug, Coat Rack. Rugs are flat planes
-where the surface texture matters far more than the geometry, so they lose
-little.
+Rug, Round Rug, Coat Rack. Rugs are flat planes where the surface
+texture matters far more than the geometry, so they lose little.
 
 ## Draco decoder (`apps/web/public/draco/`)
 

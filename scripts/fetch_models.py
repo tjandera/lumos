@@ -55,6 +55,21 @@ MAPPING = {
     "tv-stand": "modern_wooden_cabinet",
     "plant": "potted_plant_01",
     "plant-small": "potted_plant_02",
+    # Fills for items that had no good match in the first pass.
+    "bed-single": "vintage_day_bed",
+    "floor-lamp": "desk_lamp_arm_01",
+    # New catalog entries.
+    "ottoman": "Ottoman_01",
+    "rocking-chair": "Rockingchair_01",
+    "nightstand": "ClassicNightstand_01",
+    "console-table": "ClassicConsole_01",
+    "wooden-chair": "WoodenChair_01",
+    "wall-shelf": "Shelf_01",
+    "ceiling-lamp": "modern_ceiling_lamp_01",
+    "vase": "ceramic_vase_01",
+    "plant-tall": "potted_plant_04",
+    "steel-shelves": "steel_frame_shelves_01",
+    "round-coffee-table": "coffee_table_round_01",
 }
 
 UA = {"User-Agent": "interior-design-asset-pipeline"}
