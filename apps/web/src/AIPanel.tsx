@@ -118,7 +118,7 @@ export function AIPanel() {
   };
 
   return (
-    <div className="absolute bottom-3 right-3 w-64 rounded-xl bg-black/70 p-3 text-white shadow-lg backdrop-blur">
+    <div data-tour="ai-panel" className="absolute bottom-3 right-3 w-64 rounded-xl bg-black/70 p-3 text-white shadow-lg backdrop-blur">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">AI assistant</div>
       <button
         className="w-full rounded-md bg-emerald-500/20 px-2 py-1.5 text-sm text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-40"

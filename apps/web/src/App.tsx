@@ -1,4 +1,5 @@
-import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles } from 'lucide-react';
+import { useEffect } from 'react';
+import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles, HelpCircle } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -23,6 +24,8 @@ import { PhotoResultModal } from './PhotoResultModal';
 import { LocationPicker } from './location/LocationPicker';
 import { DarkRoomNotice } from './DarkRoomNotice';
 import { LightStudyPanel } from './LightStudyPanel';
+import { Tour } from './tour/Tour';
+import { tourSeen } from './tour/steps';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -30,7 +33,16 @@ export default function App() {
   const materialsOpen = useUiStore((s) => s.materialsOpen);
   const aiEnabled = isFeatureEnabled('ai');
   const roomPhotoEnabled = isFeatureEnabled('roomPhoto');
+  const setTourOpen = useUiStore((s) => s.setTourOpen);
   useGlobalShortcuts();
+
+  // First visit: run the walkthrough once the toolbar and panels have mounted, so every
+  // step has a real element to point at.
+  useEffect(() => {
+    if (tourSeen()) return;
+    const id = window.setTimeout(() => setTourOpen(true), 700);
+    return () => window.clearTimeout(id);
+  }, [setTourOpen]);
 
   return (
     <div className="relative h-full w-full bg-neutral-900">
@@ -53,6 +65,7 @@ export default function App() {
       <PhotoResultModal />
       <LocationPicker />
       <LightStudyPanel />
+      <Tour />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
   );
@@ -87,7 +100,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
 
   return (
     <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2 rounded-xl bg-black/60 px-3 py-2 text-white shadow-lg backdrop-blur">
-      <div className="flex overflow-hidden rounded-md border border-white/15">
+      <div className="flex overflow-hidden rounded-md border border-white/15" data-tour="mode-toggle">
         <button className={seg(mode === '3d')} onClick={() => setMode('3d')}>
           3D
         </button>
@@ -127,6 +140,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
               lightingOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleLighting}
+            data-tour="light"
             title="Open lighting controls"
           >
             <Sun size={13} /> Light
@@ -145,6 +159,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
               enhancedRealism ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleEnhancedRealism}
+            data-tour="realism"
             title="ON: apartment HDRI, fabric/wood materials, soft shadows, window light"
           >
             <Sparkles size={13} /> Realism
@@ -153,6 +168,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
             className={`${btn} inline-flex items-center gap-1`}
             disabled={photoBusy}
             onClick={requestPhoto}
+            data-tour="capture"
             title="One-shot high-quality capture, every setting maxed"
           >
             <Camera size={13} /> {photoBusy ? 'Rendering…' : 'Capture'}
@@ -162,6 +178,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
               lightStudyOpen ? 'bg-amber-500/25 text-amber-200' : 'bg-white/10 text-white/50 hover:bg-white/20'
             }`}
             onClick={toggleLightStudy}
+            data-tour="day"
             title="Render one frame per hour and scrub the light across a whole day"
           >
             <Clock size={13} /> Day
@@ -175,6 +192,13 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
         </button>
       )}
       <DesignTransfer />
+      <button
+        className={`${btn} inline-flex items-center gap-1`}
+        onClick={() => useUiStore.getState().setTourOpen(true)}
+        title="Replay the guided tour"
+      >
+        <HelpCircle size={13} /> Tour
+      </button>
       <button className={btn} onClick={reset} title="Discard changes and reload the sample scene">
         Reset
       </button>

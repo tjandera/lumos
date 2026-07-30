@@ -55,7 +55,10 @@ export function CatalogPanel() {
   }
 
   return (
-    <div className="absolute bottom-3 left-3 max-w-[19rem] rounded-xl bg-black/60 p-2 text-white shadow-lg backdrop-blur">
+    <div
+      className="absolute bottom-3 left-3 max-w-[19rem] rounded-xl bg-black/60 p-2 text-white shadow-lg backdrop-blur"
+      data-tour="catalog"
+    >
       <div className="mb-1.5 flex items-center justify-between px-1">
         <span className="text-[10px] uppercase tracking-wider text-white/40">Add furniture</span>
         <button className="text-white/40 hover:text-white/70" onClick={() => setCollapsed(true)} title="Hide">

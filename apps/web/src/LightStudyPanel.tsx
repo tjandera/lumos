@@ -221,8 +221,11 @@ export function LightStudyPanel() {
                 </span>
               </div>
 
-              {aiAvailable && (
-                <div className="mt-3 border-t border-white/10 pt-2">
+              {/* Shown whether or not a key is configured: hiding it entirely made the
+                  feature undiscoverable, so an unconfigured server explains itself
+                  instead of silently offering nothing. */}
+              <div className="mt-3 border-t border-white/10 pt-2">
+                {aiAvailable ? (
                   <div className="flex flex-wrap items-center gap-1">
                     <Sparkles size={12} className="mr-0.5 text-amber-300" />
                     <span className="mr-1 text-[11px] text-white/45">Photoreal pass:</span>
@@ -244,13 +247,25 @@ export function LightStudyPanel() {
                       </button>
                     ))}
                   </div>
+                ) : (
+                  <div className="flex items-start gap-1.5">
+                    <Sparkles size={12} className="mt-0.5 shrink-0 text-white/30" />
+                    <p className="text-[11px] leading-snug text-white/40">
+                      <span className="text-white/60">Photoreal re-lighting is available with an OpenAI key.</span>{' '}
+                      Set <code className="rounded bg-white/10 px-1">OPENAI_API_KEY</code> on the API (or{' '}
+                      <code className="rounded bg-white/10 px-1">LIGHT_STUDY_MOCK=true</code> to try the flow for
+                      free) and reopen this panel. The day cycle above needs none of it.
+                    </p>
+                  </div>
+                )}
+                {aiAvailable && (
                   <p className="mt-1 text-[10px] leading-snug text-white/30">
                     Restyles this frame only — the day cycle above is the physically-accurate one.
                     The model can drift from your exact furniture; treat it as a mood image.
                   </p>
-                  {relitError && <p className="mt-1 text-[11px] text-red-300">{relitError}</p>}
-                </div>
-              )}
+                )}
+                {relitError && <p className="mt-1 text-[11px] text-red-300">{relitError}</p>}
+              </div>
 
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-[11px] text-white/35">{frames.length} frames · drag to scrub</span>

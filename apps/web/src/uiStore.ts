@@ -127,6 +127,10 @@ interface UiStore {
   gizmoMode: 'translate' | 'rotate';
   setGizmoMode: (m: 'translate' | 'rotate') => void;
 
+  /** Guided first-run walkthrough (see tour/). Replayable from the Help button. */
+  tourOpen: boolean;
+  setTourOpen: (v: boolean) => void;
+
   // --- Map location picker ---
   locationOpen: boolean;
   toggleLocation: () => void;
@@ -257,6 +261,10 @@ export const useUiStore = create<UiStore>()((set) => ({
   setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
   gizmoMode: 'translate',
   setGizmoMode: (gizmoMode) => set({ gizmoMode }),
+
+  // Opened on first run by App once the UI has mounted, so targets exist to point at.
+  tourOpen: false,
+  setTourOpen: (tourOpen) => set({ tourOpen }),
 
   locationOpen: false,
   toggleLocation: () => set((s) => ({ locationOpen: !s.locationOpen })),
