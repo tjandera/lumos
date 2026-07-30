@@ -21,6 +21,7 @@ import { computeWallShape, buildWallGeometry } from './wallGeometry.js';
 import { applyRealismMaterials, createRealismMaterial, hasAuthoredMaps, plasterTexture } from './realismMaterials.js';
 import { applyBoxUVs, tilesPerMeterFor } from './boxUVs.js';
 import { Trim } from './Trim.js';
+import { computeFitTransform } from './modelFit.js';
 import type { MaterialFamily } from './pbrTextures.js';
 
 /**
@@ -452,7 +453,7 @@ function FurnitureBox({
         <Suspense fallback={<PlaceholderBox cat={cat} realism={realism} family={item.materialFamily} />}>
           <FurnitureModel
             url={cat.model}
-            targetWidth={cat.width}
+            dimensions={item.dimensions ?? { w: cat.width, h: cat.height, d: cat.depth }}
             category={cat.category}
             color={cat.color}
             realism={realism}
@@ -524,14 +525,15 @@ const DRACO_PATH = '/draco/';
  * When Realism is on, Kenney's flat materials are replaced with fabric/wood/carpet PBR. */
 function FurnitureModel({
   url,
-  targetWidth,
+  dimensions,
   category,
   color,
   realism,
   family,
 }: {
   url: string;
-  targetWidth: number;
+  /** The size this item declares in the catalog (or its per-instance override). */
+  dimensions: { w: number; h: number; d: number };
   category: CatalogCategory;
   color: string;
   realism?: boolean;
@@ -547,10 +549,12 @@ function FurnitureModel({
         mesh.receiveShadow = true;
       }
     });
+    // Fit the model inside its declared w/d/h rather than scaling by width alone —
+    // otherwise height and depth are whatever the source model's proportions give, and
+    // items from different sources end up at visibly inconsistent sizes.
     const box = new THREE.Box3().setFromObject(cloned);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const s = size.x > 1e-4 ? targetWidth / size.x : 1;
+    const fit = computeFitTransform({ min: box.min, max: box.max }, dimensions);
+    const s = fit.scale;
     if (realism) {
       // Models that ship their own PBR maps (the Poly Haven set) are textured against a
       // bespoke unwrap — re-projecting their UVs would smear those maps across the mesh.
@@ -563,12 +567,14 @@ function FurnitureModel({
       }
       applyRealismMaterials(cloned, category, color, family);
     }
-    cloned.position.set(-center.x, -box.min.y, -center.z); // center x/z, base to y = 0
+    // computeFitTransform returns the post-scale offset; the wrapper applies the scale,
+    // so divide back out to express it in the child's own (unscaled) space.
+    cloned.position.set(fit.position[0] / s, fit.position[1] / s, fit.position[2] / s);
     const wrapper = new THREE.Group();
     wrapper.add(cloned);
     wrapper.scale.setScalar(s);
     return wrapper;
-  }, [scene, targetWidth, category, color, realism, family]);
+  }, [scene, dimensions.w, dimensions.h, dimensions.d, category, color, realism, family]);
   return <primitive object={object} />;
 }
 

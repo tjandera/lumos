@@ -32,3 +32,5 @@ export {
 } from "./pbrTextures.js";
 export type { MaterialFamily, FamilyMaps } from "./pbrTextures.js";
 export { Trim, buildTrimPieces } from "./Trim.js";
+export { computeFitTransform } from "./modelFit.js";
+export type { FitTransform, Box3Like } from "./modelFit.js";
