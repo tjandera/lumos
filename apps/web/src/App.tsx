@@ -26,6 +26,7 @@ import { DarkRoomNotice } from './DarkRoomNotice';
 import { LightStudyPanel } from './LightStudyPanel';
 import { Tour } from './tour/Tour';
 import { tourSeen } from './tour/steps';
+import { useLightStudyStatus } from './useLightStudyStatus';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -93,6 +94,7 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
   const requestPhoto = useUiStore((s) => s.requestPhoto);
   const lightStudyOpen = useUiStore((s) => s.lightStudyOpen);
   const toggleLightStudy = useUiStore((s) => s.toggleLightStudy);
+  const aiRelight = useLightStudyStatus();
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -179,9 +181,18 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
             }`}
             onClick={toggleLightStudy}
             data-tour="day"
-            title="Render one frame per hour and scrub the light across a whole day"
+            title={
+              aiRelight.available
+                ? `Render one frame per hour and scrub a whole day — then re-light any hour with AI${
+                    aiRelight.mock ? ' (mock)' : ''
+                  }`
+                : 'Render one frame per hour and scrub the light across a whole day'
+            }
           >
             <Clock size={13} /> Day
+            {/* The AI pass lives two clicks inside this panel, so surface that it exists
+                at all from the toolbar rather than only once you're already in there. */}
+            {aiRelight.available && <Sparkles size={11} className="text-amber-300/90" />}
           </button>
         </>
       )}

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Play, Pause, Sun, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useUiStore } from './uiStore';
 import { STUDY_FRAME_COUNT } from './LightStudy';
-import { getLightStudyStatus, relightFrame, type LightPresetInfo } from './api/client';
+import { relightFrame } from './api/client';
+import { useLightStudyStatus } from './useLightStudyStatus';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const clock = (minutes: number) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
@@ -39,35 +40,15 @@ export function LightStudyPanel() {
   const setPlaying = useUiStore((s) => s.setLightStudyPlaying);
 
   // --- Optional photoreal pass -------------------------------------------------
-  const [presets, setPresets] = useState<LightPresetInfo[]>([]);
-  const [aiAvailable, setAiAvailable] = useState(false);
-  const [aiMock, setAiMock] = useState(false);
+  // Shared with the toolbar's Day button so the status endpoint is hit once per load,
+  // not once per component that cares.
+  const { available: aiAvailable, mock: aiMock, presets } = useLightStudyStatus();
   const [relighting, setRelighting] = useState<string | null>(null);
   const [relitError, setRelitError] = useState<string | null>(null);
   /** Cache keyed `${frameIndex}:${preset}` — re-lighting is metered, so never pay
    *  twice for the same frame/mood, and flipping between them stays instant. */
   const relitCache = useRef<Map<string, string>>(new Map());
   const [shownPreset, setShownPreset] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    getLightStudyStatus()
-      .then((s) => {
-        if (cancelled) return;
-        setAiAvailable(s.available);
-        setAiMock(s.mock);
-        setPresets(s.presets);
-      })
-      // The API being down or absent is not an error here — the day cycle above it is
-      // rendered locally and works regardless.
-      .catch(() => {
-        if (!cancelled) setAiAvailable(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   // Moving to another hour invalidates what's on screen, not the cache.
   useEffect(() => {
@@ -170,6 +151,40 @@ export function LightStudyPanel() {
               ) : (
                 <p className="text-xs text-amber-200/80">Switch to the 3D view to render a light study.</p>
               )}
+
+              {/* Advertise the photoreal pass up front. It used to appear only after a
+                  full day had been rendered, which meant the single most interesting
+                  thing this panel does was invisible until you'd already committed to a
+                  24-frame render. */}
+              <div className="mx-auto mt-6 max-w-md rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left">
+                <p className="mb-1 inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-200/90">
+                  <Sparkles size={12} /> Then re-light any hour with AI
+                  {aiAvailable && aiMock && <span className="text-white/40">(mock)</span>}
+                </p>
+                {aiAvailable ? (
+                  <>
+                    <p className="text-[11px] leading-snug text-white/45">
+                      Once the day is rendered, any single frame can be restyled into a different
+                      mood by an image model — while the cycle itself stays the physically-accurate
+                      one.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {presets.map((p) => (
+                        <span key={p.id} className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/55">
+                          {p.label}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[11px] leading-snug text-white/45">
+                    Add <code className="rounded bg-white/10 px-1">OPENAI_API_KEY</code> to the API to
+                    restyle any hour into a different mood (or{' '}
+                    <code className="rounded bg-white/10 px-1">LIGHT_STUDY_MOCK=true</code> to try the
+                    flow for free). The day cycle needs none of it.
+                  </p>
+                )}
+              </div>
             </div>
           ) : (
             <>

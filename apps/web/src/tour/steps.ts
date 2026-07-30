@@ -55,8 +55,8 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: 'day',
     target: 'day',
-    title: 'Watch a whole day',
-    body: 'Renders one frame per hour and lets you scrub through the day. Every frame uses the real sun position for your location — including the evening, where your lamps take over.',
+    title: 'Watch a whole day — then re-light it',
+    body: 'Renders one frame per hour and lets you scrub through the day, every frame at the real sun position for your location. With an OpenAI key, any single hour can then be restyled into another mood — dawn, golden hour, dusk — by an image model.',
     side: 'bottom',
   },
   {

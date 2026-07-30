@@ -13,6 +13,7 @@ vi.mock('./api/client', () => ({
 // Imported after the mock so the panel picks up the stubbed client.
 const { LightStudyPanel } = await import('./LightStudyPanel');
 const { useUiStore } = await import('./uiStore');
+const { resetLightStudyStatusCache } = await import('./useLightStudyStatus');
 
 const RENDER_SRC = 'data:image/jpeg;base64,RENDERED';
 const RELIT_SRC = 'data:image/png;base64,RELIT';
@@ -34,6 +35,9 @@ function seedFrames() {
 
 describe('LightStudyPanel photoreal pass', () => {
   beforeEach(() => {
+    // The status hook caches at module scope so the toolbar and this panel share one
+    // fetch; without a reset the first case's result would pin every later one.
+    resetLightStudyStatusCache();
     getLightStudyStatus.mockReset();
     relightFrame.mockReset();
     getLightStudyStatus.mockResolvedValue({
