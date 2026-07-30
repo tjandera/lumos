@@ -8,9 +8,14 @@ coverage
 **/coverage
 *.log
 .DS_Store
+# Match at every level, not just the context root: a bare `.env` pattern does
+# NOT match `apps/api/.env`, which is how a real key ended up baked into the API
+# image. Docker matches these against the path relative to the build context.
 .env
 .env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 apps/api/data
 .git
 .gitignore

@@ -3,8 +3,14 @@ dist/
 .turbo/
 *.log
 .DS_Store
+# Every level, not just the repo root. `apps/api/.env` was tracked despite the
+# bare pattern below because it had already been committed — gitignore does not
+# apply to files git is already tracking. If you add one, `git rm --cached` it.
 .env
 .env.local
+**/.env
+**/.env.*
+!**/.env.example
 *.local
 coverage
 apps/api/data
