@@ -1,0 +1,93 @@
+# Production overlay — a worked example, not a drop-in. At minimum, replace:
+#
+#   1. `images[].newName` with your registry.
+#   2. `newTag` with an immutable tag or digest. `latest` is a footgun here:
+#      it makes rollouts non-reproducible and rollbacks meaningless.
+#   3. The Ingress host with your real domain.
+#   4. `VITE_ORIGIN` with the same domain (it's the CORS allowlist).
+#
+# And create the `api-secrets` Secret out-of-band (see deploy/README.md). This
+# overlay drops the in-cluster Postgres on the assumption that DATABASE_URL in
+# that Secret points at a managed database.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: interior-design
+
+resources:
+  - ../../base
+
+images:
+  - name: ghcr.io/OWNER/interior-api
+    newName: ghcr.io/your-org/interior-api
+    newTag: v1.0.0
+  - name: ghcr.io/OWNER/interior-web
+    newName: ghcr.io/your-org/interior-web
+    newTag: v1.0.0
+
+patches:
+  - target: { kind: Ingress, name: interior-design }
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: interior.example.com
+
+  - target: { kind: ConfigMap, name: api-config }
+    patch: |
+      - op: replace
+        path: /data/VITE_ORIGIN
+        value: https://interior.example.com
+
+  # Use a managed Postgres instead of the single-pod StatefulSet from the base:
+  # that one has no failover, no backups and no PITR. Point DATABASE_URL at the
+  # real thing in the `api-secrets` Secret.
+  - target: { kind: StatefulSet, name: postgres }
+    patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+      $patch: delete
+  - target: { kind: Service, name: postgres }
+    patch: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres
+      $patch: delete
+
+  # Spread replicas across nodes so a single node failure can't take the tier
+  # down. `ScheduleAnyway` rather than `DoNotSchedule` — on a small cluster a
+  # hard constraint leaves pods Pending instead of merely unbalanced.
+  - target: { kind: Deployment, name: api }
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api
+      spec:
+        template:
+          spec:
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: ScheduleAnyway
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: api
+  - target: { kind: Deployment, name: web }
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+      spec:
+        template:
+          spec:
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: ScheduleAnyway
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: web

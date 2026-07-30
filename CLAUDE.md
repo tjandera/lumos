@@ -31,13 +31,19 @@ buying.
 
 ## Layout
 
-- `packages/core` — scene document, schema, migrations, undo, flags (pure TS)
+Each of these has its own README with the detail; the root `README.md` is the map.
+
+- `packages/core` — scene document, schema, migrations, undo, flags, sun/daylight/lux
+  maths, privacy coarsening (pure TS)
 - `packages/renderer` — react-three-fiber rendering of a SceneDocument
-- `apps/web` — Vite + React + Tailwind app shell + perf HUD
-- `catalog/` — furniture catalog manifest + licensing (asset files pending)
-- `apps/api` — Fastify: currently just `POST /analyze-room-photo` (photo → OpenAI vision
-  → validated `RoomPhotoProposal` → materialized `SceneDocument`), see
-  `ROOM_IMPORT_ROADMAP.md`. Auth/designs-CRUD/share-links remain future work.
+- `packages/catalog` — 35 items with real-world dimensions (authoritative for placement)
+- `packages/ai` — tool schemas derived from core's zod, the deterministic solver, provider
+  clients
+- `apps/web` — Vite + React + Tailwind app shell, panels, guided tour, perf HUD
+- `apps/api` — Fastify: catalog, designs CRUD, share links, auth session, photo import,
+  light-study relighting, `/health` + `/readyz`
+- `catalog/` — asset provenance; `LICENSES.md` is the licensing record
+- `deploy/` — Kubernetes manifests (kustomize base + local/production overlays)
 
 ## Commands
 
@@ -48,7 +54,12 @@ buying.
 - `pnpm typecheck` — typecheck all packages
 
 Photo-room import needs `apps/api/.env` (copy `apps/api/.env.example`) with either a real
-`OPENAI_API_KEY` or `ROOM_PHOTO_MOCK=true` for a canned response during development.
+`OPENAI_API_KEY` or `ROOM_PHOTO_MOCK=true` for a canned response during development. The
+same applies to light-study re-lighting (`LIGHT_STUDY_MOCK=true`).
+
+Deployment: `docker compose up --build`, or `kubectl apply -k deploy/k8s/overlays/local`.
+See `deploy/README.md` — in particular, `VITE_API_URL` is a **build-time** Vite var baked
+into the bundle, so it is a `--build-arg`, never a runtime container env var.
 
 ## Delegation model
 

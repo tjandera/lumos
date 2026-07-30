@@ -1,0 +1,52 @@
+# Single public origin for both tiers: `/api/*` to the Fastify service,
+# everything else to the static bundle.
+#
+# Why one origin rather than two hostnames: the browser's API base URL is baked
+# into the JavaScript bundle at build time, so a per-environment hostname would
+# mean rebuilding the web image for every environment. Sharing an origin lets
+# one image run anywhere, and eliminates CORS and third-party-cookie handling
+# for the ownership session cookie as a bonus.
+#
+# The rewrite strips the `/api` prefix, because the API serves `/designs`,
+# `/health`, ... at the root. Annotations below are ingress-nginx's; the
+# equivalents for Traefik, HAProxy or a Gateway API implementation differ — the
+# routing shape is what matters.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: interior-design
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Room photos and light-study frames are multi-MB base64 payloads; the
+    # default 1m proxy body limit rejects them.
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    # Image generation is genuinely slow — well past the 60s default.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "180"
+    # Uncomment with cert-manager installed to get TLS automatically.
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  # tls:
+  #   - hosts: [interior.example.com]
+  #     secretName: interior-design-tls
+  rules:
+    - host: interior.example.com
+      http:
+        paths:
+          # More specific path first — Ingress matching is longest-prefix, but
+          # being explicit costs nothing and survives a controller swap.
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /()(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

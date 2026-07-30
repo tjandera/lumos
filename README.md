@@ -1,200 +1,309 @@
-# 3D Property Interior Design
+# Marina Studio — 3D Interior Design
 
-Arrange furniture in a 3D model of a home with realistic light & shadow before you buy.
-See `IMPLEMENTATION_PLAN.md` for scope and phases, `CLAUDE.md` for conventions, and
-**`HACKATHON.md` for a 3-minute judge's tour of the live demo.**
+Arrange furniture in a 3D model of a real room and see how actual sunlight moves through
+it across the day — before you buy anything.
 
-## Status
+Put your building on a satellite map, turn the room to the direction it really faces, and
+the sun in the scene is the sun that will be over that address on that date. A room with
+no windows and no lamps is dark, because it would be.
 
-**Phases 0–4 complete** — the MVP feature set: draw → furnish → light → arrange.
+```bash
+pnpm install && pnpm dev     # → http://localhost:5173
+```
 
-- **Phase 0 (foundation):** scene-document model (zod schema + versioned migrations),
-  a renderer that turns it into 3D, and an app shell with orbit camera, patch-based
-  undo, and a perf-budget HUD.
-- **Phase 1 (floor plan → 3D):** walls extruded with real window/door openings
-  (Shape-with-holes), a dollhouse **cutaway** view, WebGL context-loss handling + error
-  telemetry, and a **2D floor-plan editor** (draw/reshape walls, place openings, edit
-  dimensions — every change undoable and reflected live in 3D).
-- **Phase 2 (furniture):** a shared catalog package, **add / drag / rotate / delete**
-  furniture, **AABB collision** detection with live red highlighting in both views, and
-  **localStorage save/load** (autosaves; validated + migrated on load).
-- **Phase 3 (lighting):** real sun position from `suncalc` (unit-tested `sunVector`), a
-  **time-of-day slider** that moves the sun and shadows live, a procedural sky, and
-  altitude-driven light color/intensity.
-- **Phase 4 (AI assistant, behind `FEATURE_AI`):** a deterministic, clearance-validated
-  **auto-layout** engine ("Suggest a layout") — the LLM proposes intent, code places and
-  validates. Natural-language commands are wired but gated on an API key + backend.
+First run gives you a guided tour of the whole app. Skip to
+[Quick start](#quick-start) for the details, or [Deployment](#deployment) to ship it.
 
-**Phase 5 (ship) is what remains**, and it needs external resources: a backend
-(Fastify) for share links + accounts, hosting for deployment, real licensed GLB models,
-and an LLM key + proxy for live natural-language commands.
+---
 
-## Prerequisites
+## Contents
 
-- Node.js >= 22
-- pnpm >= 11 (`corepack enable`, or `npm i -g pnpm`)
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [AI features](#ai-features)
+- [Storage backends](#storage-backends)
+- [Deployment](#deployment)
+- [Performance](#performance)
+- [Privacy](#privacy)
+- [Testing](#testing)
+- [Contributing conventions](#contributing-conventions)
 
-## Run it
+---
+
+## What it does
+
+**Draw the room.** A 2D plan editor for walls (with real thickness), windows and doors,
+extruded to 3D with genuine openings. Or upload a photo of a room and have it proposed
+for you.
+
+**Put it somewhere real.** A world map picker (satellite imagery, no API key) sets the
+building's coordinates; a compass control turns the room to true north. Everything about
+the light follows from that.
+
+**Furnish it.** 35 catalog items backed by real CC0 glTF models at verified real-world
+dimensions, drag/rotate gizmos, collision-aware placement, and per-item material swaps
+across 10 photographed PBR texture families (oak, walnut, wool, linen, leather, marble,
+plaster, carpet, metal, wood flooring).
+
+**Light it honestly.** Sun position from `suncalc` for the room's actual latitude,
+longitude, date and orientation. Interior lamps as real fixtures with physical units, a
+lux heatmap against lighting standards, and a daylight model where aperture area, glass
+and curtains/blinds actually govern how much light reaches the interior — including all
+the way down to a dark room when there's nothing to light it.
+
+**Study the day.** Render one frame per hour across 24 hours and scrub through them, or
+play it back. Every frame is a real render at that hour's true sun position. With an
+OpenAI key, any single frame can additionally be re-lit photorealistically into one of
+five moods — clearly labelled, and never confused with the physically-accurate cycle it
+sits above.
+
+**Share it.** Read-only links via unguessable tokens, with the location deliberately
+coarsened on the way out (see [Privacy](#privacy)).
+
+## Quick start
+
+**Requirements:** Node.js ≥ 22, pnpm ≥ 11 (`corepack enable`).
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Open http://localhost:5173 — you'll see the sample room. Drag to orbit; toggle **3D / Plan**
-(top-left) to switch between the 3D view (with a **Cutaway** dollhouse toggle) and the 2D
-floor-plan editor, where you can reshape walls and add windows/doors. **Add furniture**
-from the catalog (bottom-left) and drag/rotate it in Plan mode — overlaps highlight red.
-Your design **autosaves** to the browser (**Reset** restores the sample). Scrub the
-**Time of day** slider to watch the sun and shadows move. With `VITE_FEATURE_AI=true`
-(see `apps/web/.env.local`), the **AI assistant** can "Suggest a layout". **Undo/Redo**
-works across everything; the perf HUD (top-right) tracks FPS, draw calls, and triangles.
+- Web app → http://localhost:5173
+- API → http://127.0.0.1:8787
 
-## Other commands
+`turbo` builds the workspace packages first, so a clean checkout works without a separate
+build step.
+
+Everything above works with no API keys, no database and no accounts. The optional extras
+are: an OpenAI key (photoreal re-lighting, photo room import), an LLM provider (the chat
+assistant), and Postgres (multi-instance persistence). See [Configuration](#configuration).
+
+### Or with Docker
 
 ```bash
-pnpm test        # unit tests (Vitest): schema, migrations, undo
-pnpm typecheck   # typecheck every package
-pnpm build       # production build of the web app
+docker compose up --build
 ```
 
-## Structure
-
-- `packages/core` — `SceneDocument` schema, migrations, undo, feature flags (pure TS)
-- `packages/renderer` — react-three-fiber rendering of a `SceneDocument`
-- `apps/web` — Vite + React + Tailwind app shell + perf HUD
-- `catalog/` — furniture catalog manifest + licensing
-
----
-
-# Merged notes from the launchpad codebase (Darlene)
-
-# interior-app
-
-Arrange furniture in a 3D model of a room, with real-world sun/shadow, before you buy. Draw a floor plan, drop in catalog furniture, scrub time-of-day to see how daylight moves across the room, and share a read-only link.
+- Web → http://localhost:8080
+- API → http://localhost:3001
+- Postgres, wired up automatically
 
 ## Architecture
 
-```
-apps/web            React + Vite + react-three-fiber viewer (Plan editor, 3D scene, onboarding, perf/quality)
-apps/api            Fastify: catalog, design storage, AI chat proxy, share links
-packages/core       Scene document model — zod schema + migrations, pure TS, no three.js
-packages/renderer   three.js/R3F rendering + lighting rig (reads packages/core)
-packages/ai         LLM tool-calling layer, behind FEATURE_AI/VITE_FEATURE_AI (no three.js, no React)
-```
-
-The scene document (`SceneDocument` in `packages/core`) is the contract: plain serializable JSON, versioned (`schemaVersion` + migrations), meters/Y-up. The renderer and the AI layer both just read/write it — the AI only ever calls typed tools derived from the same `zod` schema, never emits raw coordinates. Home address (if any) never enters the document; only coarse lat/lng + a true-north offset do, so shared links can't leak it.
-
-Undo/redo is Immer-patch-based (not full-document snapshots), scoped per-store-action in `apps/web/src/store/sceneStore.ts`.
-
-## Getting started (local dev)
+**The scene document is the contract.** `packages/core` owns a plain, serializable
+`SceneDocument` — a zod schema, versioned with migrations, in meters, Y-up. The renderer
+draws it; the AI layer proposes edits to it; the API stores it. Nothing else is shared
+state, which is why the AI, the renderer and storage can each change without the others
+noticing.
 
 ```
-pnpm install
-pnpm dev        # run all dev servers (web on :5173, api on :3001)
-pnpm build      # build all packages/apps
-pnpm test       # run unit tests
-pnpm typecheck  # typecheck all workspaces
-pnpm lint       # lint all workspaces
+                    ┌──────────────────────────┐
+                    │  packages/core           │
+                    │  SceneDocument (zod)     │   pure TS
+                    │  migrations · undo       │   no three.js, no React, no DOM
+                    │  sun · daylight · lux    │
+                    └────────────┬─────────────┘
+                                 │ reads / mutates
+          ┌──────────────────────┼──────────────────────┐
+          │                      │                      │
+┌─────────▼─────────┐  ┌─────────▼─────────┐  ┌─────────▼─────────┐
+│ packages/renderer │  │ packages/ai       │  │ apps/api          │
+│ R3F scene, PBR    │  │ typed tools from  │  │ Fastify: catalog, │
+│ materials, sun    │  │ the same schema   │  │ designs, shares,  │
+│ rig, trim         │  │ + a solver        │  │ AI + image proxy  │
+└─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘
+          └──────────────────────┼──────────────────────┘
+                       ┌─────────▼─────────┐
+                       │ apps/web          │  Vite · React 19 · R3F v9
+                       │ panels, tour, HUD │  Tailwind · Zustand + Immer
+                       └───────────────────┘
 ```
 
-`packages/ai` and `apps/api`/`apps/web` are consumed via built `dist/` output (NodeNext module resolution), so run `pnpm build` (or at least `pnpm --filter @interior/core --filter @interior/ai build`) before `pnpm dev`/`typecheck` if you're working from a clean checkout — `turbo` handles this automatically for `pnpm dev`/`build`/`test`/`typecheck` via the `^build` pipeline dependency.
+Three invariants make the rest of the design work:
 
-## Getting started (Docker)
+1. **Every schema change bumps `CURRENT_SCHEMA_VERSION` and ships a migrator.** Saved and
+   shared designs are migrated on load and never break.
+2. **The AI never emits coordinates.** It proposes constraints and intent; a deterministic
+   solver places and validates, rejecting and repairing anything that collides or violates
+   clearance. LLM spatial reasoning is unreliable, so it's structurally kept out of the
+   loop that matters.
+3. **Undo is patch-based** (Immer patches, not snapshots), and one logical edit — including
+   a multi-step AI edit — is one undo step.
 
-Requires Docker + Docker Compose. From the repo root:
+## Repository layout
 
+| Path | What lives there |
+| --- | --- |
+| [`packages/core`](packages/core) | `SceneDocument` schema, migrations, undo, sun/daylight/lux math, privacy coarsening. Pure TS. |
+| [`packages/renderer`](packages/renderer) | React Three Fiber scene: walls, trim, materials, lighting rig, box-UV projection. |
+| [`packages/catalog`](packages/catalog) | The furniture catalog: 35 items with real dimensions and model paths. |
+| [`packages/ai`](packages/ai) | LLM provider abstraction, tool schemas derived from core's zod, the layout solver. |
+| [`apps/web`](apps/web) | The client: panels, plan editor, light study, guided tour, perf HUD. |
+| [`apps/api`](apps/api) | Fastify: catalog, designs CRUD, share links, photo import, light-study relighting. |
+| [`deploy/`](deploy) | Kubernetes manifests (kustomize base + overlays) and deployment guide. |
+| [`catalog/`](catalog) | Asset manifest and licensing provenance for every model and texture. |
+| [`scripts/`](scripts) | `fetch_models.py` — the reproducible CC0 model pipeline (Draco + 512px textures). |
+
+Each package has its own README with the detail.
+
+## Commands
+
+```bash
+pnpm dev         # web (5173) + api (8787)
+pnpm build       # build every package and app
+pnpm test        # unit tests (Vitest)
+pnpm typecheck   # typecheck every workspace
+pnpm lint        # lint every workspace
 ```
-docker compose up --build
+
+Scope any of them to one workspace with `--filter`:
+
+```bash
+pnpm --filter @interior/core test
+pnpm --filter @interior/web dev
 ```
 
-- Web (nginx, static build): http://localhost:8080
-- API (Fastify): http://localhost:3001
+## Configuration
 
-By default `docker compose up` also starts a `postgres:16` service and the API connects to it (`DATABASE_URL` is wired automatically — see "Storage backends" below), persisting in the `postgres-data` named volume. The `designs-data` volume (file-backed storage) still exists for the fallback case (`DATABASE_URL=` blank in `.env`). Override any setting via a gitignored `.env` file next to `docker-compose.yml` (see the env var table below) — e.g. the AI assistant is on by default (offline mock), but to turn it off:
+Nothing here is required to run the app. Each variable switches on an optional feature.
 
-```
-echo "FEATURE_AI=false" >> .env
-docker compose up --build
-```
+### API (`apps/api/.env`, or the environment)
 
-`apps/api/Dockerfile` and `apps/web/Dockerfile` both build from the **repo root** as context (they need the workspace packages `@interior/core`/`@interior/ai`/`@interior/renderer`), are multi-stage (pnpm fetch → offline install → build → prune/nginx), run as a non-root user, and declare a `HEALTHCHECK` — the API's hits `/health`, the web image's does a plain root request against nginx.
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PORT` | `8787` (`3001` in Docker) | HTTP listen port. |
+| `VITE_ORIGIN` | `http://localhost:5173` | CORS allow-origin. Set to your public URL in production. |
+| `SESSION_SECRET` | *(insecure dev default)* | Signs the ownership cookie. **Set this in any deployment** — the fallback is hard-coded and would let anyone forge ownership of any design. |
+| `DATABASE_URL` | unset → file-backed | Postgres connection string. See [Storage backends](#storage-backends). |
+| `OPENAI_API_KEY` | unset | Photo room import and photoreal light-study re-lighting. |
+| `OPENAI_MODEL` | `gpt-5.6` | Vision model for photo import. |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-1` | Image model for re-lighting. |
+| `LIGHT_STUDY_MOCK` | `false` | Canned re-lighting responses — exercise the whole flow with no key and no billing. |
+| `ROOM_PHOTO_MOCK` | `false` | Same, for photo import. |
+| `FEATURE_AI` | `true` | Registers the chat assistant routes. |
+| `AI_PROVIDER_BASE_URL` / `AI_MODEL` / `AI_PROVIDER_API_KEY` | unset | An OpenAI-compatible endpoint for the chat assistant. Unset → built-in offline mock. |
 
-> **Note:** Docker builds are not runtime-verified in the environment these images were authored in (no Docker daemon available there) — they were reviewed carefully by hand instead. Run `docker compose up --build` yourself before relying on this in production, and treat it as the first thing to check if something's off.
+### Web (build time)
 
-## Environment variables
+Vite substitutes these into the bundle at build time, so they are **`--build-arg`s, not
+runtime container env vars**. A built bundle cannot read the environment it runs in.
 
-| Variable | Used by | Default | Notes |
-| --- | --- | --- | --- |
-| `PORT` | api | `3001` | HTTP port the Fastify server listens on. |
-| `VITE_ORIGIN` | api | `http://localhost:5173` (dev) / `http://localhost:8080` (compose) | CORS allow-origin for the API. |
-| `FEATURE_AI` | api | `true` | On by default — registers `POST /ai/chat` and `GET /ai/status`. Set to `false`/`0` to explicitly disable (`/ai/chat` 404s; `/ai/status` still responds with `{enabled:false,provider:null}`). See "AI assistant" below. |
-| `AI_PROVIDER_BASE_URL` | api | unset | OpenAI-compatible endpoint (OpenAI, Azure, vLLM, LiteLLM, Ollama's shim, ...). With this unset, the assistant runs against the built-in offline `MockProvider` — a real LLM always requires this (+ `AI_MODEL`) explicitly. |
-| `AI_MODEL` | api | unset | Model name for `AI_PROVIDER_BASE_URL`. Required together with it. |
-| `AI_PROVIDER_API_KEY` | api | unset | Optional; omit for keyless local servers. |
-| `SESSION_SECRET` | api | unset | Signing secret for the lightweight session/auth layer backing design ownership (Phase 5a). Set a real random value in any non-local deployment. |
-| `DATABASE_URL` | api | unset | Postgres connection string (e.g. `postgresql://user:pass@host:5432/db`). When set, designs/ownership/share-tokens persist to Postgres instead of the file-backed JSON store; unset (default) keeps the file-backed store. See "Storage backends" below. |
-| `VITE_API_URL` | web (build-time) | `http://localhost:3001` | Baked into the static bundle at build time — the browser's base URL for API calls. For Docker, pass as `--build-arg` / the compose `args:` block, not a runtime env var (a already-built static bundle can't read container env at `docker run` time). |
-| `VITE_FEATURE_AI` | web (build-time) | `true` | Shows/hides the AI "Assistant" drawer. On by default; set to `false`/`0` to hide it. Build-time — both this and the API's `FEATURE_AI` need to stay enabled for the assistant to work end-to-end. |
-| `API_PORT` / `WEB_PORT` | docker-compose | `3001` / `8080` | Host-side published ports. |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | docker-compose | `interior` / `interior` / `interior` | Credentials/db name for the bundled `postgres:16` compose service; also used to build the default `DATABASE_URL` the `api` service connects with. |
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `VITE_API_URL` | `http://localhost:3001` | Base URL the browser calls. Use `/api` behind a single-origin ingress. |
+| `VITE_FEATURE_AI` | `true` | Shows the AI assistant panel. |
+| `VITE_FEATURE_ROOM_PHOTO` | `false` | Shows photo room import. |
+
+## AI features
+
+Three separate things, deliberately independent — any one can be off without affecting the
+others.
+
+**Layout assistant.** Ask for a layout; the model proposes intent and a deterministic
+solver places the furniture, validating clearances and rejecting collisions. Works with no
+key at all via a built-in offline responder, so the button is never a dead end.
+
+**Photo room import** (`FEATURE_ROOM_PHOTO`). Upload a photo of a room; a vision model
+proposes a `RoomPhotoProposal`, which deterministic code validates and materializes into a
+real `SceneDocument`. The proposal is schema-checked before anything touches the document.
+
+**Photoreal light study.** The 24-hour day cycle is rendered locally and is the
+physically-accurate one. On top of it, a single frame can be re-lit into one of five moods
+by an image model. It's labelled as AI re-lit in the UI, capped at 12 requests per 5
+minutes, and the panel says plainly that the model can drift from your actual furniture.
+
+Set `LIGHT_STUDY_MOCK=true` to click through the entire flow without a key or a bill.
 
 ## Storage backends
 
-`apps/api`'s designs/ownership/share-token persistence sits behind three small interfaces (`DesignStorage`, `OwnershipStore`, `ShareTokenStore` — see `apps/api/src/designs/storage.ts`, `designs/ownership.ts`, `share/tokenStore.ts`) with two implementations each:
+Designs, ownership and share tokens sit behind three interfaces with two implementations
+each:
 
-- **File-backed (default).** One JSON file per design (`designs/fileStorage.ts`) plus `owners.json`/`shares.json` maps, all under `apps/api/data/designs` (or `dataDir`), with atomic (temp-file + rename) writes. Zero setup — this is what runs when `DATABASE_URL` is unset.
-- **Postgres (`designs/postgresStorage.ts`, `designs/postgresOwnershipStore.ts`, `share/postgresTokenStore.ts`).** Selected automatically when `DATABASE_URL` is set. Three tables (`designs`, `owners`, `shares`), auto-created on startup with idempotent `CREATE TABLE IF NOT EXISTS` — no migration framework. The full `SceneDocument` is stored as `jsonb`; all queries are parameterized. Connection pooling via `pg.Pool` (`apps/api/src/db/pool.ts`), a startup ping that fails fast with a clear error if the database is unreachable, and pool `end()` on graceful shutdown (`SIGTERM`/`SIGINT`, see `apps/api/src/index.ts`).
+- **File-backed (default).** One JSON file per design with atomic temp-file+rename writes.
+  Zero setup. Per-instance, so it does not survive rescheduling and is wrong for more than
+  one replica.
+- **Postgres.** Selected automatically when `DATABASE_URL` is set. Three tables created
+  idempotently at startup, the document stored as `jsonb`, all queries parameterized,
+  pooled connections, a fail-fast startup ping, and pool teardown on `SIGTERM`.
 
-`docker compose up` runs both a `postgres:16` service and the `api` service pointed at it by default (see `docker-compose.yml`) — set `DATABASE_URL=` (blank) in your `.env` to opt back into file-backed storage while still running the bundled Postgres container, or `pnpm --filter @interior/api dev` with `DATABASE_URL` unset for local file-backed dev (the default).
+Both implementations run against the same shared contract test suite.
 
-**Verification note:** the Postgres adapter's tests run the same shared `DesignStorage`/`OwnershipStore`/`ShareTokenStore` contract suites against both the file-backed stores and `PostgresDesignStorage`/etc. via [`pg-mem`](https://github.com/oguimbal/pg-mem) (an in-memory Postgres emulation) — no live Postgres was available to verify against in the environment these adapters were authored in. Code was reviewed by hand for parameterization/SQL correctness against real Postgres semantics; run `pnpm --filter @interior/api test` against a real `DATABASE_URL` before relying on this in production.
+## Deployment
 
-## Onboarding & Workflow
+Two supported paths, both real:
 
-First-run users get an interactive "Build your first room" walkthrough (`apps/web/src/onboarding/`), not just static text — each step waits for (and detects) the action it's teaching:
-
-1. **Choose a starting point**: "Start with a sample room" loads a prebuilt 4m x 3.5m living room (walls + a door + a window, no furniture) via `sceneStore.loadDocument`, or "I'll draw my own" shows the Plan-tab coach mark and waits for you to move on.
-2. **Drag in furniture** (auto-switches to the 3D tab): watches `document.furniture.length` for an increase, then shows a congratulatory nudge.
-3. **Try the time-of-day slider**: watches the sun's `time` field for a change, then confirms what you just saw.
-4. **Save & meet the Assistant**: points at Save and the Assistant panel; finishing (or skipping, any step) persists "seen" so it won't show again.
-
-The step machine itself (`onboarding/walkthrough.ts`) is pure/UI-free and unit-tested independent of React. Progress is gated on `localStorage` (finish or skip = seen), and the whole walkthrough is reopenable any time via the floating "?" button in the bottom-left corner.
-
-**Move-in Shopper Workflow:**
-Users can upload a floor plan (PDF or image) to trace over. **Privacy boundary**: Uploaded files remain entirely local to the import session. They are not saved in the scene document, not sent to the server, and not included in share links. 
-**Manual Smoke Flow**: Upload a plan, scale it to a known dimension, trace the room outline, place a piece of furniture to check fit, and review daylight direction.
-
-## Mobile & performance
-
-- Lighting-quality preset (`low`/`medium`/`high`) is auto-picked on first 3D-tab visit from crude device signals (DPR, WebGL renderer string, touch/mobile UA) unless you've already chosen one manually — see `apps/web/src/perf/deviceCapability.ts` / `autoQuality.ts`. If the rolling-average frame rate stays under 40fps for 10 seconds, quality drops one tier once, with a small toast.
-- The Catalog and Lighting side panels collapse into toggleable bottom sheets under 768px width (`apps/web/src/styles/responsive.css`); touch targets (buttons, tabs) grow to at least 44px on coarse-pointer (touch) devices.
-- Plan editor: single-finger draw/select/drag and two-finger pinch-to-zoom + pan both work via Pointer Events (`apps/web/src/editor/PlanEditor.tsx`, gesture math in `touchGestures.ts`); `touch-action: none` on the drawing surface stops the page from scrolling while you draw. 3D tab: `OrbitControls`' touch defaults already give one-finger rotate / two-finger dolly+pan, and furniture drag-and-drop uses Pointer Events end-to-end, so it works with touch as-is.
-- The existing perf HUD (`F9` to toggle), frame-time budget, and WebGL context-loss recovery overlay are unchanged — see `apps/web/src/perf/`.
-
-## AI assistant (Phase 4, feature-flagged, on by default)
-
-The AI assistant is **on by default** in both the web app and the API — the "Assistant" drawer shows in the 3D tab out of the box, and `POST /ai/chat` responds using the built-in offline `MockProvider` (deterministic heuristic responder, zero setup, no network calls, no API key). The core loop (draw → furnish → light → share) also still works fully without it, and the drawer's empty state is upfront about which mode you're in ("Without an AI key configured, I use built-in arrangement logic").
-
-**Disabling it:**
-
-```
-FEATURE_AI=false pnpm --filter @interior/api dev
-VITE_FEATURE_AI=false pnpm --filter @interior/web dev
-```
-
-`FEATURE_AI=false`/`0` on the API removes `POST /ai/chat` entirely (404) — `GET /ai/status` still responds (`{"enabled":false,"provider":null}`) so the web app can tell "off" apart from "on but mocked". `VITE_FEATURE_AI=false`/`0` is a **build-time** Vite env var that hides the drawer client-side; set both to fully turn the feature off end-to-end (either one alone leaves the other side still trying to reach it — the drawer degrades to a graceful in-chat error if the API side is off and the web side isn't, rather than crashing).
-
-**Attaching a real LLM** (instead of the offline mock) — the default-on behavior never does this automatically; it always requires explicit config:
+**Docker Compose** — one command, includes Postgres:
 
 ```bash
-FEATURE_AI=true                                  # already the default; harmless to set explicitly
-AI_PROVIDER_BASE_URL=https://api.openai.com/v1
-AI_MODEL=gpt-5.6-sol
-AI_PROVIDER_API_KEY=sk-...
-VITE_FEATURE_AI=true
+docker compose up --build
 ```
 
-The official GPT-5.6 integration (that exact `AI_PROVIDER_BASE_URL` + `AI_MODEL`) routes through the Responses API to reliably support typed tools; any other OpenAI-compatible `AI_PROVIDER_BASE_URL` + `AI_MODEL` (Azure, vLLM, LiteLLM, Ollama's OpenAI shim, ...) uses the Chat Completions-style path instead. `GET /ai/status` reports `{"enabled":true,"provider":"llm"}` once a real provider is configured, vs. `"provider":"mock"` for the default offline responder — that's what the chat panel's empty-state note keys off of. The route is rate-limited per IP (20 requests/minute by default, in-memory).
+**Kubernetes** — kustomize base plus `local` and `production` overlays, with liveness /
+readiness / startup probes, resource limits, HPAs, PodDisruptionBudgets, non-root
+read-only-root-filesystem containers, and single-origin ingress routing:
 
-No `.env` file is committed with real credentials — set `AI_PROVIDER_API_KEY` etc. in your shell or a local (gitignored) `.env.development.local` / `.env.local`.
+```bash
+kubectl apply -k deploy/k8s/overlays/local
+```
+
+Full walkthrough, including image building, secret creation and the build-time API URL
+gotcha: **[`deploy/README.md`](deploy/README.md)**.
+
+## Performance
+
+The renderer targets 30–60 fps and adapts to the machine it's on rather than assuming a
+workstation:
+
+- **Device tiering** at startup from the GPU string, core count, memory and pixel ratio
+  picks an initial quality tier, a pixel-ratio cap (1–2×), and a power preference.
+- **On-demand rendering.** The frame loop is idle unless something changed, so a static
+  scene costs nothing — this is the difference between a quiet laptop and a loud one.
+- **A bidirectional quality governor** moves quality up and down at runtime to hold the
+  frame-rate band, rather than only degrading.
+- `prefers-reduced-motion` is respected.
+
+Press the perf HUD (top right) for live frame time, draw calls and triangle counts.
+
+## Privacy
+
+A home address is PII and is treated as such. It never enters the scene document. Only
+coarse coordinates travel with a design: on share and export, latitude and longitude are
+rounded to 2 decimal places (~1 km) along with a north offset — enough for the sun to be
+right, not enough to identify a building. Uploaded floor plans and room photos stay in the
+import session; they are not persisted into the document and not included in share links.
+
+## Testing
+
+Deterministic unit tests are the primary safety net — schema round-trips, every migration
+path, undo, sun vectors against reference values, collision, wall extrusion, daylight
+aperture, and the storage contracts against both backends.
+
+```bash
+pnpm test
+pnpm --filter @interior/core test
+```
+
+Known gap: `apps/web` carries a set of failing tests from an in-progress module port
+(`guidance/`, `store/`, `ai/chatStore`). They are tracked and unrelated to the shipped
+feature set.
+
+## Contributing conventions
+
+See [`CLAUDE.md`](CLAUDE.md) for the full set. The load-bearing ones:
+
+- Keep `packages/core` free of three.js, React and DOM.
+- Meters, Y-up, right-handed; angles in degrees in the document.
+- Every schema change bumps `CURRENT_SCHEMA_VERSION` **and** adds a migrator.
+- Features ship behind flags.
+- Never trust raw LLM coordinates.
+- Home address is PII.
+
+## License
+
+See [`LICENSE`](LICENSE). Third-party model and texture provenance — all CC0 — is recorded
+in [`LICENSES.md`](LICENSES.md) and [`catalog/README.md`](catalog/README.md).

@@ -1,0 +1,83 @@
+# Local cluster (kind / minikube / k3d / Docker Desktop).
+#
+# Single replicas, locally-built images, in-cluster Postgres, and no
+# autoscalers — a laptop cluster usually has no metrics-server, and an HPA
+# without one just sits in a permanent "unknown metrics" state.
+#
+# Full walkthrough (image loading, host setup) is in deploy/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: interior-design
+
+resources:
+  - ../../base
+
+images:
+  - name: ghcr.io/OWNER/interior-api
+    newName: interior-api
+    newTag: local
+  - name: ghcr.io/OWNER/interior-web
+    newName: interior-web
+    newTag: local
+
+# Locally-built images aren't in any registry; without this the kubelet tries
+# to pull and fails even though the image is already on the node.
+patches:
+  - target: { kind: Deployment, name: api }
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target: { kind: Deployment, name: web }
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  # One pod per tier can't satisfy minAvailable: 1 during a drain, which would
+  # block node upgrades. Not a concern locally.
+  - target: { kind: PodDisruptionBudget }
+    patch: |
+      - op: replace
+        path: /spec/minAvailable
+        value: 0
+  - target: { kind: Ingress, name: interior-design }
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: interior.localtest.me
+  - target: { kind: ConfigMap, name: api-config }
+    patch: |
+      - op: replace
+        path: /data/VITE_ORIGIN
+        value: http://interior.localtest.me
+      # Exercise the AI panels end-to-end without a funded key or any billing.
+      - op: replace
+        path: /data/LIGHT_STUDY_MOCK
+        value: "true"
+      - op: replace
+        path: /data/ROOM_PHOTO_MOCK
+        value: "true"
+
+  # Drop both HPAs: a laptop cluster usually has no metrics-server, leaving them
+  # stuck reporting unknown metrics, and there's nothing to scale at 1 replica.
+  - target: { kind: HorizontalPodAutoscaler, name: api }
+    patch: |
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: api
+      $patch: delete
+  - target: { kind: HorizontalPodAutoscaler, name: web }
+    patch: |
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: web
+      $patch: delete

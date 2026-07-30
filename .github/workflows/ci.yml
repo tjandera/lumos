@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  manifests:
+    # Deployment manifests are only as good as the last time someone rendered
+    # them. Catching a broken overlay here is much cheaper than catching it
+    # partway through a rollout.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo mv /tmp/kubeconform /usr/local/bin/
+
+      - name: Render and validate every overlay
+        run: |
+          for overlay in base overlays/local overlays/production; do
+            echo "::group::$overlay"
+            kubectl kustomize "deploy/k8s/$overlay" \
+              | kubeconform -strict -summary -kubernetes-version 1.30.0 -
+            echo "::endgroup::"
+          done
+
+  docker:
+    # Both Dockerfiles build from the repo root and consume workspace packages,
+    # which an innocuous-looking file move can break. Build both on every PR;
+    # push nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          build-args: VITE_API_URL=/api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

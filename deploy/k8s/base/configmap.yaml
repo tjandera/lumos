@@ -1,0 +1,32 @@
+# Non-secret API configuration. Secrets (SESSION_SECRET, OPENAI_API_KEY,
+# DATABASE_URL) live in the Secret — see secret.example.yaml.
+#
+# Anything set here is readable by anyone with `get configmap` in the
+# namespace, so keep it to values you'd be comfortable printing in a log.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+data:
+  PORT: "3001"
+  NODE_ENV: "production"
+
+  # Allowed browser origin for CORS. Behind the bundled Ingress the web app and
+  # the API share one origin, so this is the site's own public URL. Override it
+  # per environment in an overlay.
+  VITE_ORIGIN: "http://localhost:8080"
+
+  # Feature flags. The AI assistant additionally needs a provider key in the
+  # Secret; with FEATURE_AI=true and no key the server starts fine and the
+  # assistant reports that it isn't configured.
+  FEATURE_AI: "false"
+
+  # Models used when an OpenAI key is present. Left here rather than in the
+  # Secret so you can roll a model without touching credentials.
+  OPENAI_MODEL: "gpt-5.6"
+  OPENAI_IMAGE_MODEL: "gpt-image-1"
+
+  # Canned responses instead of real (billed) API calls — useful for demo
+  # environments and for exercising the light-study flow without a funded key.
+  ROOM_PHOTO_MOCK: "false"
+  LIGHT_STUDY_MOCK: "false"

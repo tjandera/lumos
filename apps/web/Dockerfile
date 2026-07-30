@@ -44,13 +44,18 @@ RUN pnpm --filter @interior/core --filter @interior/ai --filter @interior/render
   && pnpm --filter @interior/web build
 
 # ---- runtime: nginx serving the static build output.
-FROM nginx:1.27-alpine AS runtime
+#
+# The unprivileged variant, not stock `nginx`: it runs as uid 101 with its
+# temp/cache paths under /tmp, so the container needs neither root nor
+# CAP_NET_BIND_SERVICE and can run with a read-only root filesystem in
+# Kubernetes. It listens on 8080 (see apps/web/nginx.conf) rather than 80.
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

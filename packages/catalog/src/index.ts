@@ -15,8 +15,9 @@ export interface CatalogItem {
 }
 
 /**
- * The curated catalog. Models are Kenney "Furniture Kit 2.0" (CC0) GLBs — see
- * LICENSES.md. Dimensions are real-world meters; the renderer scales each model to
+ * The curated catalog. Models are CC0 GLBs, mostly Poly Haven with some of the original
+ * Kenney "Furniture Kit 2.0" set still in place — see LICENSES.md for per-asset
+ * provenance. Dimensions are real-world meters; the renderer contain-fits each model to
  * match, and falls back to a colored box while a model loads.
  */
 export const catalog: CatalogItem[] = [

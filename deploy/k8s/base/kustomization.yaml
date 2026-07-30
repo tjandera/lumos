@@ -1,0 +1,32 @@
+# Base manifests. Apply an overlay rather than this directly — the base
+# carries placeholder image names (ghcr.io/OWNER/...) and a placeholder Ingress
+# host, both of which an overlay is expected to replace.
+#
+#   kubectl apply -k deploy/k8s/overlays/local
+#   kubectl apply -k deploy/k8s/overlays/production
+#
+# Note there is deliberately no Secret here: `secret.example.yaml` is a
+# template and is not referenced, so no kustomize build can ever emit
+# placeholder credentials. See deploy/README.md for creating the real one.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: interior-design
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - api.yaml
+  - web.yaml
+  - ingress.yaml
+
+# `labels` rather than the deprecated `commonLabels`, and deliberately without
+# `includeSelectors`: Deployment/StatefulSet selectors are immutable once
+# applied, so folding these into them would make removing or renaming a common
+# label a delete-and-recreate. Each workload already carries its own
+# `app.kubernetes.io/component` selector.
+labels:
+  - pairs:
+      app.kubernetes.io/name: interior-design
+      app.kubernetes.io/part-of: interior-design

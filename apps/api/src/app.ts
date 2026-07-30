@@ -139,8 +139,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
+  // Liveness: the process is up and the event loop is turning. Deliberately
+  // checks nothing external — a dependency being down is not a reason for an
+  // orchestrator to kill and restart this pod.
   app.get("/health", async () => {
     return { ok: true };
+  });
+
+  // Readiness: should this instance receive traffic? Unlike liveness this does
+  // check the database, because a pod that can't reach Postgres will fail every
+  // design read/write and should be pulled out of the load-balancer rotation
+  // until it recovers. With the file-backed store there's nothing to check, so
+  // ready == live.
+  app.get("/readyz", async (_request, reply) => {
+    if (!pgPool) return { ok: true, storage: "file" as const };
+    try {
+      await pgPool.query("SELECT 1");
+      return { ok: true, storage: "postgres" as const };
+    } catch (err) {
+      app.log.warn({ err }, "readiness check failed: Postgres unreachable");
+      return reply.code(503).send({ ok: false, storage: "postgres", error: "database unreachable" });
+    }
   });
 
   await app.register(catalogRoutes);

@@ -1,0 +1,175 @@
+# The Fastify API: catalog, designs CRUD, share links, photo import and the
+# light-study re-lighting proxy.
+#
+# Stateless *when DATABASE_URL is set*. With the file-backed fallback each pod
+# keeps its own designs on local disk, so scale to more than one replica only
+# once Postgres is configured — see secret.example.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/name: interior-design
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: interior-design
+        app.kubernetes.io/component: api
+    spec:
+      # SIGTERM is handled in apps/api/src/index.ts (drains Fastify, ends the
+      # pg pool). 30s is the default, stated explicitly so nobody shortens the
+      # grace period without noticing there's real shutdown work to do.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/OWNER/interior-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: api-config
+          env:
+            # Every key is optional so a Secret holding only what you use is
+            # valid — an unset OPENAI_API_KEY just means the AI features report
+            # themselves as unconfigured rather than blocking startup.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef: { name: api-secrets, key: SESSION_SECRET, optional: true }
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: api-secrets, key: DATABASE_URL, optional: true }
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: { name: api-secrets, key: OPENAI_API_KEY, optional: true }
+            - name: AI_PROVIDER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: api-secrets, key: AI_PROVIDER_API_KEY, optional: true }
+
+          # Liveness: process up. Deliberately does NOT check Postgres —
+          # restarting a pod cannot fix a down database, and a probe that did
+          # would turn one database blip into a cluster-wide crash-loop.
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Readiness: should this pod get traffic? This one *does* check
+          # Postgres, so a pod that can't reach the database leaves the Service
+          # endpoints instead of failing every request it's handed.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Startup: buildApp() pings Postgres and creates tables before
+          # listening, so a cold start against a waking database can take a
+          # while. This gives it up to 60s before liveness takes over.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 3
+            failureThreshold: 20
+
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            # Image generation holds a multi-MB base64 payload in memory (the
+            # route caps bodies at 12 MB), so the ceiling is set by that, not by
+            # steady-state load.
+            limits: { cpu: 500m, memory: 512Mi }
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so anything that writes needs an
+            # explicit mount. This is the file-backed store's directory; it is
+            # emptyDir on purpose — it's a per-pod scratch space, and treating
+            # it as durable is exactly the mistake to avoid. Set DATABASE_URL
+            # for real persistence.
+            - name: designs-data
+              mountPath: /app/apps/api/data/designs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: designs-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/name: interior-design
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+---
+# Keeps at least one API pod serving during voluntary disruptions (node drains,
+# cluster upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # AI calls are slow and bursty; a 5-minute window stops the autoscaler
+      # from tearing down capacity between bursts.
+      stabilizationWindowSeconds: 300
