@@ -59,8 +59,9 @@ the way down to a dark room when there's nothing to light it.
 under the daylight that room actually gets, across twelve moments covering the full 24
 hours — solar midnight, pre-dawn, dawn, sunrise, morning, noon, afternoon, golden hour,
 sunset, dusk — with sun angles computed for your building and date. Generate a single
-moment, or the whole timelapse, then download the set as a ZIP with a manifest of times
-and sun positions. See [`apps/web/src/imageDay/`](apps/web/src/imageDay/README.md).
+moment, a representative six, or the full twelve — four at a time, so a full day takes
+about ninety seconds rather than six minutes for the same cost — then download the set as
+a ZIP with a manifest of times and sun positions. See [`apps/web/src/imageDay/`](apps/web/src/imageDay/README.md).
 
 **Study the day.** Render one frame per hour across 24 hours and scrub through them, or
 play it back. Every frame is a real render at that hour's true sun position. With an

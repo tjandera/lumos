@@ -95,10 +95,59 @@ re-deflating would cost CPU and typically *grow* the output. `STORE` is correct 
 reduces the format to headers plus raw bytes (`zip.ts`, ~100 lines, tested against the
 byte layout).
 
+## Quick 6 vs Full 12
+
+The panel defaults to **Quick 6** — half the money and half the wait, still a whole cycle:
+
+| | |
+| --- | --- |
+| `night` | lamps only, no sun at all |
+| `sunrise` | low sun raking in from one side |
+| `midday` | high sun, short shadows |
+| `lateAfternoon` | low sun raking in from the *other* side |
+| `goldenHour` | warm, near-horizontal |
+| `dusk` | blue ambient, lamps taking over |
+
+Chosen for how light *enters a room*, not for even spacing. Morning and afternoon low sun
+are both kept deliberately: in a real room they hit different walls, which is exactly what
+someone deciding where to put a sofa needs to see. Morning twilight is the one that gets
+cut — `night` already covers "dark room, lamps on", and a second near-identical dark frame
+is a poor use of one of only six images.
+
+**Full 12** is one click away for the complete cycle. The set lives in
+`ESSENTIAL_MOMENT_IDS` in `@interior/core` so the API and the client can't disagree
+about it.
+
+## Running them in parallel
+
+Generation is ~30s of *waiting*, not of local work, so a run spends nearly all its time
+idle. `runPool` keeps **4 in flight**:
+
+| | Sequential | 4 at a time |
+| --- | --- | --- |
+| Quick 6 | ~3 min | ~50s |
+| Full 12 | ~6 min | ~1.5 min |
+
+Identical cost — same number of billed calls, only the wall clock changes.
+
+Four rather than all twelve, for three reasons: browsers cap concurrent connections per
+origin at six on HTTP/1.1, so beyond that requests queue invisibly in the network stack
+where nothing can cancel them; image APIs rate-limit hard enough that a full fan-out
+mostly buys 429s; and a smaller pool keeps the retry path quiet.
+
+The pool retries 429s and genuine upstream 5xx with exponential backoff, but **not 503** —
+our API uses that specifically for "the key is bad" or "the account has no credit", and
+neither improves by asking again. Retrying those would be three wasted round trips per
+image, twelve times over.
+
+Frames arrive out of order once several are in flight, so the panel re-sorts into schedule
+order on every arrival rather than appending. One failed hour is reported after the run
+instead of aborting it — the hours that succeeded were still paid for.
+
 ## Cost and caching
 
-Twelve moments is twelve billed image-model calls — roughly six minutes on `gpt-image-2`,
-fifteen on `gpt-image-1`. So:
+Twelve moments is twelve billed image-model calls — roughly ninety seconds on
+`gpt-image-2` at four-way concurrency. So:
 
 - **One moment at a time is a first-class choice**, not a lesser one. Click a single
   moment chip to spend one image on the hour you care about.

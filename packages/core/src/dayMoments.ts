@@ -60,6 +60,25 @@ export const DAY_MOMENT_IDS: readonly DayMomentId[] = [
  */
 export type DayPhase = 'night' | 'morningTwilight' | 'day' | 'eveningTwilight';
 
+/**
+ * A representative half-dozen, for when a full twelve is more time and money than the
+ * question deserves.
+ *
+ * Chosen for how the light *enters a room*, not for even spacing: lamps-only, a low sun
+ * raking in from one side, a high sun with short shadows, a low sun raking in from the
+ * other side, warm golden light, and blue ambient with the lamps taking over. Morning and
+ * afternoon low sun are both kept because in a real room they hit different walls — which
+ * is exactly what someone deciding where to put a sofa wants to see.
+ */
+export const ESSENTIAL_MOMENT_IDS: readonly DayMomentId[] = [
+  'night',
+  'sunrise',
+  'midday',
+  'lateAfternoon',
+  'goldenHour',
+  'dusk',
+];
+
 export interface DayMoment {
   id: DayMomentId;
   label: string;

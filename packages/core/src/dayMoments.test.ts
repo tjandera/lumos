@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compassName,
   DAY_MOMENT_IDS,
+  ESSENTIAL_MOMENT_IDS,
   dayMoments,
   describeMoment,
   formatClock,
@@ -202,5 +203,47 @@ describe('formatClock', () => {
     expect(formatClock(0)).toBe('00:00');
     expect(formatClock(540)).toBe('09:00');
     expect(formatClock(1439)).toBe('23:59');
+  });
+});
+
+describe('ESSENTIAL_MOMENT_IDS', () => {
+  it('is a strict subset of the full set', () => {
+    for (const id of ESSENTIAL_MOMENT_IDS) expect(DAY_MOMENT_IDS).toContain(id);
+    expect(ESSENTIAL_MOMENT_IDS.length).toBeLessThan(DAY_MOMENT_IDS.length);
+  });
+
+  it('keeps the full set’s chronological order', () => {
+    const rank = (id: string) => DAY_MOMENT_IDS.indexOf(id as never);
+    const ranks = ESSENTIAL_MOMENT_IDS.map(rank);
+    expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
+  });
+
+  it('still spans dark, low sun, high sun and back to dark', () => {
+    const { moments } = dayMoments(LONDON.lat, LONDON.lng, JUNE);
+    const chosen = moments.filter((m) => ESSENTIAL_MOMENT_IDS.includes(m.id));
+    expect(chosen).toHaveLength(ESSENTIAL_MOMENT_IDS.length);
+
+    // Starts dark and ends dark, so the quick run is still a whole cycle rather than
+    // just the daylight part.
+    expect(chosen[0]!.afterDark).toBe(true);
+    expect(chosen.at(-1)!.afterDark).toBe(true);
+
+    // A properly high sun...
+    expect(chosen.some((m) => m.altitudeDeg > 45)).toBe(true);
+    // ...and low sun on *both* sides of noon, which in a real room means light raking in
+    // through different windows onto different walls. That pair is the main thing a
+    // six-shot set has to preserve.
+    const low = chosen.filter((m) => !m.afterDark && m.altitudeDeg < 20);
+    expect(low.length).toBeGreaterThanOrEqual(2);
+    expect(low.some((m) => m.minutes < 12 * 60)).toBe(true);
+    expect(low.some((m) => m.minutes > 12 * 60)).toBe(true);
+  });
+
+  it('drops morning twilight on purpose, keeping the sunrise beam instead', () => {
+    // `night` already carries "dark room, lamps on"; a second near-identical dark frame
+    // would be a poor use of one of only six images, whereas the sunrise beam is unique.
+    expect(ESSENTIAL_MOMENT_IDS).not.toContain('dawn');
+    expect(ESSENTIAL_MOMENT_IDS).not.toContain('preDawn');
+    expect(ESSENTIAL_MOMENT_IDS).toContain('sunrise');
   });
 });

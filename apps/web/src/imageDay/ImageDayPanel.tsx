@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Upload, Sparkles, Loader2, Play, Pause, RefreshCw, Sun, Trash2, Download, Package } from 'lucide-react';
-import { formatClock } from '@interior/core';
+import { X, Upload, Sparkles, Loader2, Play, Pause, RefreshCw, Trash2, Download, Package, Zap } from 'lucide-react';
+import { ESSENTIAL_MOMENT_IDS, formatClock } from '@interior/core';
 import { useUiStore } from '../uiStore';
 import { useSceneStore } from '../store';
 import {
@@ -15,9 +15,20 @@ import {
 } from '../api/client';
 import { frameKey, readFrame, readRun, writeFrame, fingerprintPhoto } from './cache';
 import { bytesFromDataUrl, createZip, downloadBlob, safeName } from './zip';
+import { runPool } from './pool';
 
 /** Frames are held at full size in memory; playback just swaps the src. */
 const PLAYBACK_MS = 900;
+
+/**
+ * How many images to have in flight at once.
+ *
+ * Four, not twelve: browsers cap concurrent connections per origin at six on HTTP/1.1, so
+ * beyond that requests queue invisibly in the network stack, and image APIs rate-limit
+ * hard enough that a full fan-out mostly buys 429s. Four is the sweet spot where the wall
+ * clock drops by roughly 4x and the retry path stays quiet.
+ */
+const CONCURRENCY = 4;
 
 interface Frame {
   momentId: string;
@@ -55,6 +66,8 @@ export function ImageDayPanel() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  /** Six representative moments, or the full twelve. */
+  const [depth, setDepth] = useState<'quick' | 'full'>('quick');
   const contextRef = useRef<RoomLightContext | null>(null);
   const cancelRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -141,25 +154,28 @@ export function ImageDayPanel() {
       setError(null);
       setPlaying(false);
       setProgress({ done: 0, total: ids.length });
+      setBusy(ids.length > 1 ? `Generating ${ids.length} moments…` : 'Generating…');
 
+      // Once, before the fan-out: every image needs the same room description, and
+      // running the vision pass N times would both cost more and defeat its purpose.
       const context = await ensureContext(photo);
-      const collected: Frame[] = [];
+      setBusy(ids.length > 1 ? `Generating ${ids.length} moments, ${CONCURRENCY} at a time…` : 'Generating…');
 
-      for (const [i, id] of ids.entries()) {
-        if (cancelRef.current) break;
-        const moment = schedule?.moments.find((m) => m.id === id);
-        setBusy(`Generating ${moment?.label ?? id}…`);
+      let done = 0;
+      let firstError: unknown;
 
-        const key = frameKey({
-          photo,
-          lat: site.lat,
-          lng: site.lng,
-          northOffsetDeg: site.trueNorthOffsetDeg,
-          dateIso: site.date,
-          momentId: id,
-        });
+      const results = await runPool(
+        ids,
+        async (id) => {
+          const key = frameKey({
+            photo,
+            lat: site.lat,
+            lng: site.lng,
+            northOffsetDeg: site.trueNorthOffsetDeg,
+            dateIso: site.date,
+            momentId: id,
+          });
 
-        try {
           const hit = await readFrame(key);
           const frame: Frame = hit
             ? { momentId: id, label: hit.label, minutes: hit.minutes, imageDataUrl: hit.imageDataUrl }
@@ -172,28 +188,36 @@ export function ImageDayPanel() {
                 bearingDeg: r.moment.bearingDeg,
               }));
 
-          if (!hit) {
-            void writeFrame({ key, ...frame, createdAt: Date.now() });
-          }
-          collected.push(frame);
-          // Show each frame the moment it lands rather than making people wait for
-          // the whole run — a six-image sequence is several minutes.
+          if (!hit) void writeFrame({ key, ...frame, createdAt: Date.now() });
+
+          // Show each frame the moment it lands. With four in flight they arrive out of
+          // order, so this re-sorts into schedule order every time rather than appending.
           setFrames((prev) => {
             const next = prev.filter((f) => f.momentId !== frame.momentId).concat(frame);
             const order = schedule?.moments.map((m) => m.id) ?? [];
             return next.sort((a, b) => order.indexOf(a.momentId) - order.indexOf(b.momentId));
           });
-        } catch (err) {
-          // One failed hour must not throw away the ones already paid for.
-          setError(err instanceof Error ? err.message : 'Generation failed');
-          break;
-        }
-        setProgress({ done: i + 1, total: ids.length });
+          return frame;
+        },
+        {
+          concurrency: CONCURRENCY,
+          isCancelled: () => cancelRef.current,
+          onSettled: () => setProgress({ done: ++done, total: ids.length }),
+        },
+      );
+
+      // One bad hour must not discard the hours that succeeded — and were paid for — so
+      // failures are reported after the run rather than aborting it.
+      const failed = results.filter((r) => r.error);
+      firstError = failed[0]?.error;
+      if (firstError) {
+        const detail = firstError instanceof Error ? firstError.message : 'Generation failed';
+        setError(failed.length > 1 ? `${failed.length} moments failed. ${detail}` : detail);
       }
 
       setBusy(null);
       setProgress(null);
-      if (collected.length > 1) setIndex(0);
+      setIndex(0);
     },
     [photo, schedule, ensureContext, site.lat, site.lng, site.trueNorthOffsetDeg, site.date],
   );
@@ -263,6 +287,8 @@ export function ImageDayPanel() {
 
   const current = frames[Math.min(index, Math.max(0, frames.length - 1))];
   const allIds = schedule?.moments.map((m) => m.id) ?? [];
+  const essential = new Set<string>(ESSENTIAL_MOMENT_IDS);
+  const runIds = depth === 'quick' ? allIds.filter((id) => essential.has(id)) : allIds;
   const canRun = Boolean(photo) && !busy && status?.available;
 
   return (
@@ -359,14 +385,39 @@ export function ImageDayPanel() {
                     </button>
                   );
                 })}
-                <button
-                  disabled={!canRun}
-                  onClick={() => runMoments(allIds)}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md bg-violet-500/85 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-40"
-                  title={`All ${allIds.length} moments — roughly ${allIds.length * 35}s and ${allIds.length} image-model calls`}
-                >
-                  <Sun size={12} /> Full timelapse ({allIds.length})
-                </button>
+                <div className="ml-auto flex items-center gap-1.5">
+                  {/* Six is the default: it spans the whole cycle for half the money, and
+                      someone who wants every hour can say so explicitly. */}
+                  <div className="flex overflow-hidden rounded-md border border-white/15 text-[11px]">
+                    {(['quick', 'full'] as const).map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDepth(d)}
+                        disabled={!!busy}
+                        className={`px-2 py-1 disabled:opacity-40 ${
+                          depth === d ? 'bg-violet-500/25 text-violet-100' : 'text-white/55 hover:bg-white/10'
+                        }`}
+                        title={
+                          d === 'quick'
+                            ? 'Six representative moments: lamps-only night, sunrise, midday, two low-sun afternoons, dusk'
+                            : `Every one of the ${allIds.length} moments`
+                        }
+                      >
+                        {d === 'quick' ? 'Quick 6' : `Full ${allIds.length}`}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    disabled={!canRun}
+                    onClick={() => runMoments(runIds)}
+                    className="inline-flex items-center gap-1 rounded-md bg-violet-500/85 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-40"
+                    title={`${runIds.length} image-model calls, ${CONCURRENCY} at a time — roughly ${Math.ceil(
+                      (runIds.length / CONCURRENCY) * 35,
+                    )}s`}
+                  >
+                    <Zap size={12} /> Generate {runIds.length}
+                  </button>
+                </div>
               </div>
 
               {busy && (
