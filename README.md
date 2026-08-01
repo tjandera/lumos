@@ -69,6 +69,12 @@ OpenAI key, any single frame can additionally be re-lit photorealistically into 
 five moods — clearly labelled, and never confused with the physically-accurate cycle it
 sits above.
 
+**Keep it.** Optional accounts (email + password, scrypt-hashed) so designs follow you to
+another browser. Entirely additive: there is no login wall, anonymous use works exactly as
+before, and designs made before signing up move to the account rather than being stranded.
+Needs Postgres; without it, accounts report themselves unavailable and nothing else
+changes.
+
 **Share it.** Read-only links via unguessable tokens, with the location deliberately
 coarsened on the way out (see [Privacy](#privacy)).
 

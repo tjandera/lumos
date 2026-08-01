@@ -93,6 +93,11 @@ interface UiStore {
   /** "Image Generation Day": a user's own room photo re-lit across the real day. */
   imageDayOpen: boolean;
   toggleImageDay: () => void;
+  accountOpen: boolean;
+  toggleAccount: () => void;
+  /** null when signed out — which is a normal state here, not a locked one. */
+  account: { id: string; email: string } | null;
+  setAccount: (a: { id: string; email: string } | null) => void;
   /** Set to start a capture run; LightStudyCapture clears it once it takes over. */
   lightStudyRequested: boolean;
   lightStudyBusy: boolean;
@@ -231,6 +236,10 @@ export const useUiStore = create<UiStore>()((set) => ({
   toggleLightStudy: () => set((s) => ({ lightStudyOpen: !s.lightStudyOpen })),
   imageDayOpen: false,
   toggleImageDay: () => set((s) => ({ imageDayOpen: !s.imageDayOpen })),
+  accountOpen: false,
+  toggleAccount: () => set((s) => ({ accountOpen: !s.accountOpen })),
+  account: null,
+  setAccount: (account) => set({ account }),
   lightStudyRequested: false,
   lightStudyBusy: false,
   lightStudyProgress: 0,

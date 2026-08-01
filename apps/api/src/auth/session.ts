@@ -10,7 +10,7 @@
  */
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import cookiePlugin from "@fastify/cookie";
 
 export const SESSION_COOKIE_NAME = "interior_session";
@@ -65,6 +65,34 @@ export function resolveCookiePolicy(env = process.env): {
   if (raw === "none") return { sameSite: "none", secure: true };
   if (raw === "strict") return { sameSite: "strict", secure: isProd };
   return { sameSite: "lax", secure: isProd };
+}
+
+/**
+ * Write the session cookie.
+ *
+ * Shared by the anonymous-session hook and the auth routes, so signing in is nothing more
+ * than putting a different owner id in the same cookie — `user:<id>` instead of a random
+ * UUID. Everything downstream compares opaque strings and neither knows nor cares which
+ * kind it holds.
+ */
+export function setSessionCookie(reply: FastifyReply, ownerId: string, secret: string): void {
+  reply.setCookie(SESSION_COOKIE_NAME, signSessionValue(ownerId, secret), {
+    httpOnly: true,
+    ...resolveCookiePolicy(),
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365
+  });
+}
+
+/**
+ * Sign out.
+ *
+ * `path` must match what was set, or the browser keeps the original cookie and the user
+ * appears to still be signed in — a confusing bug precisely because nothing errors.
+ */
+export function clearSessionCookie(reply: FastifyReply): void {
+  const { sameSite, secure } = resolveCookiePolicy();
+  reply.clearCookie(SESSION_COOKIE_NAME, { path: "/", httpOnly: true, sameSite, secure });
 }
 
 /** Sign a uid into a `uid.hmac` cookie value. */
@@ -127,12 +155,7 @@ export async function registerSession(app: FastifyInstance, options: RegisterSes
     let uid = verifySessionValue(raw, options.secret);
     if (!uid) {
       uid = randomUUID();
-      reply.setCookie(SESSION_COOKIE_NAME, signSessionValue(uid, options.secret), {
-        httpOnly: true,
-        ...resolveCookiePolicy(),
-        path: "/",
-        maxAge: 60 * 60 * 24 * 365
-      });
+      setSessionCookie(reply, uid, options.secret);
     }
     request.ownerId = uid;
   });

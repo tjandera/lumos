@@ -48,10 +48,41 @@ unauthenticated by design.** Read [Cost exposure](#cost-exposure-read-this-one).
   is dropped by the browser without a word, reproducing the exact symptom the setting
   exists to cure.
 
-### Still accepted
+### Accounts
 
-- **Anonymous ownership.** There are no accounts. Whoever holds the cookie owns the design;
-  clearing cookies loses access. That is the intended product, not an oversight.
+Anonymous ownership was the last "accepted" item; there are now real accounts.
+
+Email and password, hashed with **scrypt** from `node:crypto` — a memory-hard KDF, no
+native addon, per-password salt, constant-time comparison. Cost parameters are stored
+inside each hash, so they can be raised later without invalidating anyone's password;
+`needsRehash` upgrades an old hash on the owner's next successful login.
+
+`N = 2^15` (~32 MB, ~100 ms) rather than OWASP's preferred `2^17`. 2^17 is 128 MB **per
+concurrent login**, which on the 1 GiB container this targets turns a handful of
+simultaneous sign-ins into an OOM — a denial of service dressed up as diligence. Raise
+`SCRYPT_COST` if you deploy somewhere with room.
+
+What the implementation is careful about:
+
+- **Signing up does not lose your work.** Designs made anonymously are moved to the
+  account on both register *and* login. Losing someone's work on their first interaction
+  with an account system is the worst thing it can do.
+- **No user enumeration.** A wrong password and an unknown address return the same status
+  and the same body, and an unknown address still burns an equivalent scrypt verification —
+  otherwise the ~100 ms gap is a reliable oracle for which emails are registered.
+- **Brute force is limited on two axes**: per IP *and* per email, so spreading attempts
+  across a botnet doesn't slip past a per-IP limit on any single account.
+- **Duplicate registration is decided by the UNIQUE constraint**, not an application-level
+  check, which would leave a window for two simultaneous signups to both succeed.
+- **Accounts are Postgres-only.** Credentials do not belong in the per-pod JSON file the
+  design store falls back to. Without a database, accounts report themselves unavailable
+  and the app works exactly as it did before — anonymously, with no login wall.
+
+Still true, and deliberate: **there is no password reset**, because there is no email
+provider wired up. Add one before this is more than a demo — until then, a forgotten
+password means a lost account. Sessions are also stateless signed cookies, so changing a
+password does not invalidate other sessions; sign-out clears the cookie on that browser
+only.
 
 ## Cost exposure (read this one)
 
@@ -106,6 +137,7 @@ Set on the API before going public:
 | `VITE_ORIGIN` | your Pages URL | The CORS allowlist. |
 | `IMAGE_DAILY_MAX` | e.g. `50` | Your ceiling. Now genuinely global when `DATABASE_URL` is set — no dividing by replica count. |
 | `SESSION_COOKIE_SAMESITE` | `none` **only if** web and API are on different domains | Leave unset for the single-origin ingress. Setting `none` also forces `Secure`. |
+| `SCRYPT_COST` | `15` default; raise to `16`–`17` with memory to spare | Password hashing cost as a power of two. Existing hashes upgrade themselves on next login. |
 | `DATABASE_URL` | Neon connection string | Otherwise designs live on a per-instance disk and vanish on redeploy. |
 | `OPENAI_API_KEY` | via Secret Manager, never an env literal in a config file | See the leak post-mortem in this repo's history for why. |
 

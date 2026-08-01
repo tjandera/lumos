@@ -311,3 +311,47 @@ export async function generateImageDayMoment(
     body: JSON.stringify({ imageDataUrl, moment, site, context })
   });
 }
+
+// --- Accounts -------------------------------------------------------------------
+// Layered over the anonymous session: everyone gets a signed cookie on first contact,
+// and signing in swaps the random id inside it for the account's. Designs made before
+// signing up are adopted by the account rather than stranded.
+
+export interface Account {
+  id: string;
+  email: string;
+}
+
+export async function getAuthStatus(): Promise<{ available: boolean }> {
+  return request<{ available: boolean }>("/auth/status");
+}
+
+export async function getCurrentUser(): Promise<Account | null> {
+  const { user } = await request<{ user: Account | null }>("/auth/me");
+  return user;
+}
+
+/** `adoptedDesigns` is how many anonymous designs moved to the account. */
+export async function register(
+  email: string,
+  password: string
+): Promise<{ user: Account; adoptedDesigns: number }> {
+  return request<{ user: Account; adoptedDesigns: number }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password })
+  });
+}
+
+export async function login(
+  email: string,
+  password: string
+): Promise<{ user: Account; adoptedDesigns: number }> {
+  return request<{ user: Account; adoptedDesigns: number }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password })
+  });
+}
+
+export async function logout(): Promise<void> {
+  await request<{ ok: true }>("/auth/logout", { method: "POST" });
+}

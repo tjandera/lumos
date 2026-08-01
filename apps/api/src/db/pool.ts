@@ -60,6 +60,21 @@ export async function ensurePgSchema(pool: PgPool): Promise<void> {
       design_id TEXT NOT NULL
     )
   `);
+  // Accounts. Postgres-only on purpose: credentials do not belong in the per-pod JSON
+  // file the design store falls back to — see auth/users.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      -- UNIQUE on the column rather than a separately-created index: it is what
+      -- \`INSERT ... ON CONFLICT (email)\` infers its arbiter from, and it is the only
+      -- thing that actually stops two simultaneous registrations for the same address
+      -- from both succeeding. An application-level "is it taken?" check has a window
+      -- between the read and the write for exactly that to happen.
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    )
+  `);
   // Shared rate-limit and spend counters. Without these living outside the process,
   // every limit is silently multiplied by the replica count — see usage/counterStore.ts.
   await pool.query(`

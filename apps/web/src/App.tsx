@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles, HelpCircle, Image as ImageIcon } from 'lucide-react';
+import { RefreshCw, Sun, Palette, Camera, Clock, Move, RotateCw, Sparkles, HelpCircle, Image as ImageIcon, User as UserIcon } from 'lucide-react';
 import { isFeatureEnabled } from '@interior/core';
 import { useSceneStore } from './store';
 import { useUiStore, type ViewMode } from './uiStore';
@@ -25,9 +25,11 @@ import { LocationPicker } from './location/LocationPicker';
 import { DarkRoomNotice } from './DarkRoomNotice';
 import { LightStudyPanel } from './LightStudyPanel';
 import { ImageDayPanel } from './imageDay/ImageDayPanel';
+import { AccountPanel } from './auth/AccountPanel';
 import { Tour } from './tour/Tour';
 import { tourSeen } from './tour/steps';
 import { useLightStudyStatus } from './useLightStudyStatus';
+import { getCurrentUser } from './api/client';
 
 export default function App() {
   const mode = useUiStore((s) => s.mode);
@@ -37,6 +39,15 @@ export default function App() {
   const roomPhotoEnabled = isFeatureEnabled('roomPhoto');
   const setTourOpen = useUiStore((s) => s.setTourOpen);
   useGlobalShortcuts();
+
+  // Who's signed in, if anyone. A failure here is not an error state: accounts are
+  // optional, and the app is fully usable anonymously.
+  const setAccount = useUiStore((s) => s.setAccount);
+  useEffect(() => {
+    getCurrentUser()
+      .then(setAccount)
+      .catch(() => setAccount(null));
+  }, [setAccount]);
 
   // First visit: run the walkthrough once the toolbar and panels have mounted, so every
   // step has a real element to point at.
@@ -68,6 +79,7 @@ export default function App() {
       <LocationPicker />
       <LightStudyPanel />
       <ImageDayPanel />
+      <AccountPanel />
       <Tour />
       <Toolbar aiEnabled={aiEnabled} roomPhotoEnabled={roomPhotoEnabled} mode={mode} />
     </div>
@@ -99,6 +111,8 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
   const imageDayOpen = useUiStore((s) => s.imageDayOpen);
   const toggleImageDay = useUiStore((s) => s.toggleImageDay);
   const aiRelight = useLightStudyStatus();
+  const account = useUiStore((s) => s.account);
+  const toggleAccount = useUiStore((s) => s.toggleAccount);
 
   const seg = (active: boolean) =>
     `px-2.5 py-1 text-xs ${active ? 'bg-sky-500/25 text-sky-200' : 'text-white/60 hover:bg-white/10'}`;
@@ -219,6 +233,14 @@ function Toolbar({ aiEnabled, roomPhotoEnabled, mode }: { aiEnabled: boolean; ro
         </button>
       )}
       <DesignTransfer />
+      <button
+        className={`${btn} inline-flex items-center gap-1`}
+        onClick={toggleAccount}
+        data-tour="account"
+        title={account ? `Signed in as ${account.email}` : 'Sign in to reach your designs from any browser'}
+      >
+        <UserIcon size={13} /> {account ? account.email.split('@')[0] : 'Sign in'}
+      </button>
       <button
         className={`${btn} inline-flex items-center gap-1`}
         onClick={() => useUiStore.getState().setTourOpen(true)}

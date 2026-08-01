@@ -16,6 +16,8 @@ import { FileShareTokenStore } from "./share/tokenStore.js";
 import { PostgresShareTokenStore } from "./share/postgresTokenStore.js";
 import type { ShareTokenStore } from "./share/tokenStore.js";
 import { registerSession, resolveSessionSecret } from "./auth/session.js";
+import { authRoutes } from "./auth/routes.js";
+import { createPostgresUserStore, type UserStore } from "./auth/users.js";
 import { createRateLimiter, type RateLimitOptions } from "./ai/rateLimit.js";
 import {
   createMemoryCounterStore,
@@ -97,6 +99,12 @@ export interface BuildAppOptions {
    * and to process memory otherwise.
    */
   counterStore?: CounterStore;
+  /**
+   * Account storage. Defaults to Postgres when a database is configured; accounts are
+   * unavailable without one, because credentials do not belong in the per-pod file store
+   * the designs fall back to.
+   */
+  users?: UserStore;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -236,6 +244,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     checkRateLimit: imageDayRateLimit,
     spendGuard
   });
+  // Accounts sit on top of the anonymous session rather than replacing it: signing in
+  // swaps the random uid in the cookie for `user:<id>`, and ownership — which only ever
+  // compares opaque strings — is unchanged.
+  const users = options.users ?? (pgPool ? createPostgresUserStore(pgPool) : undefined);
+  await app.register(authRoutes, {
+    users,
+    storage,
+    ownership,
+    sessionSecret: options.sessionSecret ?? resolveSessionSecret(),
+    // Credential submission is cheap for an attacker and expensive for us (scrypt), so
+    // it is limited on both axes: per address, and per account.
+    checkRateLimit: createRateLimiter(counters, "auth-ip", { windowMs: 15 * 60_000, max: 20 }),
+    checkEmailRateLimit: createRateLimiter(counters, "auth-email", { windowMs: 15 * 60_000, max: 10 })
+  });
+
   await app.register(designRoutes, { storage, ownership, tokens });
   await app.register(shareRoutes, { storage, tokens });
 

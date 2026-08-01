@@ -13,7 +13,7 @@ describe("pool", () => {
       // `usage_counters` backs the rate limits and the daily spend ceiling. It has to be
       // here rather than in process memory, or both are silently multiplied by the
       // replica count — see usage/counterStore.ts.
-      expect(tables.rows.map((r) => r.table_name)).toEqual(["designs", "owners", "shares", "usage_counters"]);
+      expect(tables.rows.map((r) => r.table_name)).toEqual(["designs", "owners", "shares", "usage_counters", "users"]);
     } finally {
       await cleanup();
     }
