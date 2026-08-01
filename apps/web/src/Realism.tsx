@@ -35,10 +35,105 @@ class RealismSafeBoundary extends Component<
 }
 
 /**
- * Image-based ambient lighting.
- * Realism ON → Poly Haven "apartment" HDRI (drei CDN) for real studio reflections,
- *   with a procedural sky fallback if the CDN fails.
- * Realism OFF → flat RoomEnvironment so the toggle is obvious.
+ * After Realism unmounts SoftShadows / EffectComposer, force the interactive renderer
+ * defaults back. SoftShadows patches `shadowMap.type` to VSM; if its cleanup races or
+ * fails, leaving VSM + NoToneMapping causes errors and hitching with Realism OFF.
+ */
+export function RendererDefaults({ realism }: { realism: boolean }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    if (realism) return;
+    const apply = () => {
+      gl.toneMapping = THREE.ACESFilmicToneMapping;
+      gl.shadowMap.enabled = true;
+      gl.shadowMap.type = THREE.PCFSoftShadowMap;
+      gl.shadowMap.needsUpdate = true;
+    };
+    apply();
+    // One frame later catches SoftShadows' deferred cleanup restoring a stale type.
+    const id = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(id);
+  }, [gl, realism]);
+  return null;
+}
+
+/** Flat RoomEnvironment — only mounted when Realism is OFF so it never races HDRI dispose. */
+function BasicEnvironment({ intensity }: { intensity: number }) {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const target = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    const env = target.texture;
+    scene.environment = env;
+    if (scene.background instanceof THREE.Color) scene.background = null;
+    scene.environmentIntensity = intensity;
+
+    return () => {
+      if (scene.environment === env) scene.environment = null;
+      target.dispose();
+      pmrem.dispose();
+    };
+  }, [gl, scene]);
+
+  useEffect(() => {
+    scene.environmentIntensity = intensity;
+  }, [scene, intensity]);
+
+  return null;
+}
+
+/** Apartment HDRI + sky backdrop — only mounted when Realism is ON. */
+function RealismEnvironment({
+  intensity,
+  elevationRad,
+}: {
+  intensity: number;
+  elevationRad: number;
+}) {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const elevKey = Math.round((elevationRad * 180) / Math.PI);
+  const [hdriFailed, setHdriFailed] = useState(false);
+
+  useEffect(() => {
+    const colors = skyColors((elevKey * Math.PI) / 180);
+    const bg = colors.zenith.clone().lerp(colors.horizon, 0.4);
+    scene.background = bg;
+
+    if (!hdriFailed) {
+      // Clear any leftover env so drei Environment doesn't restore a disposed texture.
+      scene.environment = null;
+      scene.environmentIntensity = intensity;
+      return () => {
+        if (scene.background === bg) scene.background = null;
+      };
+    }
+
+    const skyTex = createSkyEnvironment(gl, colors);
+    scene.environment = skyTex;
+    scene.environmentIntensity = intensity;
+    return () => {
+      if (scene.background === bg) scene.background = null;
+      if (scene.environment === skyTex) scene.environment = null;
+      skyTex.dispose();
+    };
+  }, [gl, scene, elevKey, hdriFailed, intensity]);
+
+  if (hdriFailed) return null;
+
+  return (
+    <RealismSafeBoundary onError={() => setHdriFailed(true)}>
+      <Environment preset="apartment" background={false} environmentIntensity={intensity} />
+    </RealismSafeBoundary>
+  );
+}
+
+/**
+ * Image-based ambient lighting. Split into exclusive ON/OFF subtrees so toggling
+ * Realism never disposes a RoomEnvironment while `<Environment>` still holds it
+ * (that race was the Realism-OFF WebGL error / hitch).
  */
 export function SceneEnvironment({
   intensity = 1,
@@ -49,75 +144,10 @@ export function SceneEnvironment({
   elevationRad?: number;
   realism?: boolean;
 }) {
-  const gl = useThree((s) => s.gl);
-  const scene = useThree((s) => s.scene);
-  const elevKey = Math.round((elevationRad * 180) / Math.PI);
-  const [hdriFailed, setHdriFailed] = useState(false);
-
-  // Reset HDRI failure when leaving/re-entering Realism so a later retry can work.
-  useEffect(() => {
-    if (!realism) setHdriFailed(false);
-  }, [realism]);
-
-  useEffect(() => {
-    if (realism && !hdriFailed) {
-      const colors = skyColors((elevKey * Math.PI) / 180);
-      const bg = colors.zenith.clone().lerp(colors.horizon, 0.4);
-      scene.background = bg;
-      return () => {
-        if (scene.background === bg) scene.background = null;
-      };
-    }
-
-    // OFF mode, or Realism with HDRI down — procedural env so materials still reflect.
-    let env: THREE.Texture;
-    let pmrem: THREE.PMREMGenerator | null = null;
-    let target: THREE.WebGLRenderTarget | null = null;
-    let skyTex: THREE.Texture | null = null;
-
-    if (realism && hdriFailed) {
-      const colors = skyColors((elevKey * Math.PI) / 180);
-      skyTex = createSkyEnvironment(gl, colors);
-      env = skyTex;
-      const bg = colors.zenith.clone().lerp(colors.horizon, 0.4);
-      scene.background = bg;
-      const prevEnv = scene.environment;
-      scene.environment = env;
-      return () => {
-        if (scene.environment === env) scene.environment = prevEnv;
-        if (scene.background === bg) scene.background = null;
-        skyTex?.dispose();
-      };
-    }
-
-    pmrem = new THREE.PMREMGenerator(gl);
-    target = pmrem.fromScene(new RoomEnvironment(), 0.04);
-    env = target.texture;
-    const prevEnv = scene.environment;
-    scene.environment = env;
-    if (scene.background instanceof THREE.Color) scene.background = null;
-
-    return () => {
-      if (scene.environment === env) scene.environment = prevEnv;
-      target?.dispose();
-      pmrem?.dispose();
-    };
-  }, [gl, scene, elevKey, realism, hdriFailed]);
-
-  useEffect(() => {
-    scene.environmentIntensity = intensity;
-    return () => {
-      scene.environmentIntensity = 1;
-    };
-  }, [scene, intensity]);
-
-  if (!realism || hdriFailed) return null;
-
-  return (
-    <RealismSafeBoundary onError={() => setHdriFailed(true)}>
-      <Environment preset="apartment" background={false} environmentIntensity={intensity} />
-    </RealismSafeBoundary>
-  );
+  if (realism) {
+    return <RealismEnvironment intensity={intensity} elevationRad={elevationRad} />;
+  }
+  return <BasicEnvironment intensity={intensity} />;
 }
 
 /**
@@ -140,7 +170,12 @@ export function RealismEffects({
       </RealismSafeBoundary>
       <RealismSafeBoundary>
         <ContactShadows
+<<<<<<< Updated upstream
           frames={Infinity}
+=======
+          key={contactShadowKey}
+          frames={contactShadowFrames(quality)}
+>>>>>>> Stashed changes
           position={[floorCenter.x, 0.012, floorCenter.z]}
           opacity={0.65}
           scale={Math.max(10, floorSpan + 2)}
@@ -194,7 +229,7 @@ function LampBloom({ quality }: { quality: Quality }) {
     }
 
     return () => {
-      gl.toneMapping = prevTone;
+      gl.toneMapping = THREE.ACESFilmicToneMapping;
       composer?.dispose();
       composerRef.current = null;
     };

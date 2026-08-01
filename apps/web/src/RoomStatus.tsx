@@ -39,6 +39,11 @@ export function RoomStatus() {
           <AlertTriangle size={12} /> {collisions} overlapping
         </div>
       )}
+      {mode === '3d' && (
+        <div className="mt-1.5 max-w-[14rem] text-[10px] leading-snug text-white/40">
+          WASD / arrows walk · drag look · scroll zoom · Shift faster · Fit / Walk in toolbar
+        </div>
+      )}
     </div>
   );
 }

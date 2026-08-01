@@ -70,6 +70,12 @@ interface UiStore {
   /** Cinematic lighting: time-of-day sky IBL, window fill, soft shadows, lamp glow. */
   enhancedRealism: boolean;
   toggleEnhancedRealism: () => void;
+  /** Bumped by the toolbar to re-frame the room in 3D (see ViewNavigator). */
+  fitViewNonce: number;
+  requestFitView: () => void;
+  /** Bumped to drop the camera to eye-level walk pose inside the room. */
+  walkViewNonce: number;
+  requestWalkView: () => void;
   /** One-shot high-quality capture: not offline path-traced GI, just every quality
    * setting maxed + higher resolution, captured as a PNG. See LIGHTING_ROADMAP.md. */
   photoRequested: boolean;
@@ -176,6 +182,10 @@ export const useUiStore = create<UiStore>()((set) => ({
 
   enhancedRealism: true,
   toggleEnhancedRealism: () => set((s) => ({ enhancedRealism: !s.enhancedRealism })),
+  fitViewNonce: 0,
+  requestFitView: () => set((s) => ({ fitViewNonce: s.fitViewNonce + 1 })),
+  walkViewNonce: 0,
+  requestWalkView: () => set((s) => ({ walkViewNonce: s.walkViewNonce + 1 })),
   photoRequested: false,
   photoBusy: false,
   photoResult: null,

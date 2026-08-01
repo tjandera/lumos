@@ -15,8 +15,20 @@ import {
 import { useSceneStore } from './store';
 import { useUiStore, type Weather } from './uiStore';
 import { PerfProbe } from './PerfProbe';
-import { SceneEnvironment, RealismEffects, PhotoCapture, WindowFillLights } from './Realism';
+import {
+  SceneEnvironment,
+  RealismEffects,
+  PhotoCapture,
+  WindowFillLights,
+  RendererDefaults,
+} from './Realism';
 import { FurnitureGizmo } from './FurnitureGizmo';
+<<<<<<< Updated upstream
+=======
+import { FlyControls } from './FlyControls';
+import { ViewNavigator } from './ViewNavigator';
+import { LightStudyCapture } from './LightStudy';
+>>>>>>> Stashed changes
 import { collidingFurnitureIds } from './collisionUi';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -506,6 +518,7 @@ export function Scene3D({ active }: { active: boolean }) {
       }}
     >
       <ToneMapping exposure={effectiveExposure} />
+      <RendererDefaults realism={enhancedRealism} />
       {sunMode === 'auto' && <SunAnimator enabled={playing} />}
       <SceneEnvironment intensity={envIntensity} elevationRad={elevation} realism={enhancedRealism} />
       <PhotoCapture active={active} />
@@ -603,11 +616,23 @@ export function Scene3D({ active }: { active: boolean }) {
       )}
       <OrbitControls
         target={[cam.target.x, cam.target.y, cam.target.z]}
-        maxPolarAngle={Math.PI / 2.05}
-        minDistance={2}
-        maxDistance={30}
+        enableDamping
+        dampingFactor={0.08}
+        rotateSpeed={0.72}
+        panSpeed={0.85}
+        zoomSpeed={0.95}
+        screenSpacePanning
+        minPolarAngle={0.12}
+        maxPolarAngle={Math.PI / 2.02}
+        minDistance={0.6}
+        maxDistance={36}
         makeDefault
       />
+<<<<<<< Updated upstream
+=======
+      <FlyControls active={active} />
+      <ViewNavigator active={active} />
+>>>>>>> Stashed changes
       <PerfProbe />
       {enhancedRealism && (
         <RealismEffects quality={quality} floorCenter={floorCenter} floorSpan={floorSpan} />

@@ -21,6 +21,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
  * - 1 / 2: jump to the 3D / Plan tab
  * - C: toggle cutaway (dollhouse walls)
  * - L: toggle the Lighting panel
+ * - F: fit the room in the 3D view
  */
 export function useGlobalShortcuts(): void {
   const undo = useSceneStore((s) => s.undo);
@@ -36,6 +37,8 @@ export function useGlobalShortcuts(): void {
   const setMode = useUiStore((s) => s.setMode);
   const toggleCutaway = useUiStore((s) => s.toggleCutaway);
   const toggleLighting = useUiStore((s) => s.toggleLighting);
+  const requestFitView = useUiStore((s) => s.requestFitView);
+  const mode = useUiStore((s) => s.mode);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -114,6 +117,11 @@ export function useGlobalShortcuts(): void {
         toggleLighting();
         return;
       }
+      if (!mod && e.key.toLowerCase() === 'f' && mode === '3d') {
+        e.preventDefault();
+        requestFitView();
+        return;
+      }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedFurnitureId) {
@@ -165,5 +173,7 @@ export function useGlobalShortcuts(): void {
     setMode,
     toggleCutaway,
     toggleLighting,
+    requestFitView,
+    mode,
   ]);
 }

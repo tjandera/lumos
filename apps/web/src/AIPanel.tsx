@@ -4,6 +4,8 @@ import { suggestLayout, type SceneDocument } from '@interior/core';
 import { getCatalogItem, catalog as furnitureCatalog } from '@interior/catalog';
 import { planLayout, solve, type CatalogItem as AiCatalogItem } from '@interior/ai';
 import { useSceneStore } from './store';
+import { findFreePlacement } from './placement';
+import { collidingFurnitureIds, COLLISION_IGNORED_CATALOG_IDS } from './collisionUi';
 
 function interiorBounds(doc: SceneDocument) {
   const xs: number[] = [];
@@ -54,6 +56,32 @@ function bridgeCatalogForAi(): AiCatalogItem[] {
   return items;
 }
 
+function footprintOf(catalogId: string, scale: number) {
+  const cat = getCatalogItem(catalogId);
+  return {
+    width: (cat?.width ?? 0.6) * scale,
+    depth: (cat?.depth ?? 0.6) * scale,
+  };
+}
+
+/** Park colliding pieces and spiral them into free cells so Suggest layout never leaves the red "overlapping" badge. */
+function repairOverlaps(d: SceneDocument) {
+  for (let pass = 0; pass < 6; pass++) {
+    const hits = collidingFurnitureIds(d);
+    if (hits.size === 0) return;
+    for (const id of hits) {
+      const f = d.furniture.find((x) => x.id === id);
+      if (!f || COLLISION_IGNORED_CATALOG_IDS.has(f.catalogId)) continue;
+      const { width, depth } = footprintOf(f.catalogId, f.scale ?? 1);
+      // Move out of the room first so the spiral search doesn't treat the old pose as occupied.
+      f.position = { x: 80 + pass, y: f.position.y, z: 80 + pass };
+      const spot = findFreePlacement(d, width, depth, f.id);
+      f.position = { x: spot.x, y: f.position.y, z: spot.z };
+      f.rotationY = spot.rotationY;
+    }
+  }
+}
+
 export function AIPanel() {
   const doc = useSceneStore((s) => s.doc);
   const edit = useSceneStore((s) => s.edit);
@@ -66,17 +94,35 @@ export function AIPanel() {
     const bounds = interiorBounds(doc);
     const items = doc.furniture.map((f) => {
       const cat = getCatalogItem(f.catalogId);
-      return { id: f.id, width: (cat?.width ?? 0.6) * f.scale, depth: (cat?.depth ?? 0.6) * f.scale };
+      return {
+        id: f.id,
+        width: (cat?.width ?? 0.6) * f.scale,
+        depth: (cat?.depth ?? 0.6) * f.scale,
+        category: cat?.category,
+        catalogId: f.catalogId,
+      };
     });
     const placements = suggestLayout(bounds, items);
+    const byId = new Map(placements.map((p) => [p.id, p]));
     edit((d) => {
-      for (const p of placements) {
-        const f = d.furniture.find((x) => x.id === p.id);
-        if (f) {
+      for (const f of d.furniture) {
+        const p = byId.get(f.id);
+        if (p) {
           f.position = { x: p.x, y: f.position.y, z: p.z };
           f.rotationY = p.rotationY;
+        } else {
+          // Not seated by the planner — park then repair so it doesn't sit on a new piece.
+          f.position = { x: 90, y: f.position.y, z: 90 };
         }
       }
+      for (const f of d.furniture) {
+        if (byId.has(f.id)) continue;
+        const { width, depth } = footprintOf(f.catalogId, f.scale ?? 1);
+        const spot = findFreePlacement(d, width, depth, f.id);
+        f.position = { x: spot.x, y: f.position.y, z: spot.z };
+        f.rotationY = spot.rotationY;
+      }
+      repairOverlaps(d);
     });
   };
 
