@@ -57,16 +57,27 @@ const generateSchema = z.object({
  */
 export async function imageDayRoutes(
   app: FastifyInstance,
-  opts: { config: ImageDayConfig; checkRateLimit?: RateLimitCheck },
+  opts: {
+    config: ImageDayConfig;
+    checkRateLimit?: RateLimitCheck;
+    /** Daily ceiling on billed calls. Absent in tests that don't exercise it. */
+    spendGuard?: { tryConsume(): boolean; refund(): void; status(): { remaining: number; resetsAt: string } };
+  },
 ): Promise<void> {
-  const { config, checkRateLimit } = opts;
+  const { config, checkRateLimit, spendGuard } = opts;
 
-  app.get('/image-day/status', async () => ({
-    available: config.mock || Boolean(config.apiKey),
-    mock: config.mock,
-    moments: DAY_MOMENT_IDS,
-    imageModel: config.imageModel,
-  }));
+  app.get('/image-day/status', async () => {
+    const budget = spendGuard?.status();
+    return {
+      // A spent budget is reported as unavailable so the client explains itself rather
+      // than letting someone queue twelve images that will all be refused.
+      available: (config.mock || Boolean(config.apiKey)) && (budget ? budget.remaining > 0 : true),
+      mock: config.mock,
+      moments: DAY_MOMENT_IDS,
+      imageModel: config.imageModel,
+      ...(budget ? { budgetRemaining: budget.remaining, budgetResetsAt: budget.resetsAt } : {}),
+    };
+  });
 
   app.post('/image-day/analyze', { bodyLimit: MAX_BODY_BYTES }, async (request, reply) => {
     if (checkRateLimit && !checkRateLimit(request.ip)) {
@@ -112,6 +123,15 @@ export async function imageDayRoutes(
       cameraView: 'the exact camera position and framing of the photograph',
     };
 
+    // Reserved before the call, refunded if it never reaches the model. Mock runs are
+    // free, so they don't touch the budget at all.
+    if (!config.mock && spendGuard && !spendGuard.tryConsume()) {
+      const { resetsAt } = spendGuard.status();
+      return reply.code(429).send({
+        error: `Daily image budget reached for this server. It resets at ${resetsAt}.`,
+      });
+    }
+
     try {
       const imageUrl = await generateMoment(imageDataUrl, moment, fallbackContext, config, {
         dateLabel: date.toISOString().slice(0, 10),
@@ -119,6 +139,9 @@ export async function imageDayRoutes(
       });
       return { imageDataUrl: imageUrl, moment, mock: config.mock };
     } catch (err) {
+      // No image was produced, so the reservation goes back — a misconfigured key must
+      // not silently consume the day's budget one failed request at a time.
+      if (!config.mock) spendGuard?.refund();
       if (err instanceof ImageDayConfigError) return reply.code(503).send({ error: err.message });
       // The sanitiser picks the status: a rejected key is our misconfiguration (503),
       // a rate limit is 429, an OpenAI outage is 502.

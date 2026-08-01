@@ -10,6 +10,7 @@ anything else. Both build from the same two images.
 - [Secrets](#secrets)
 - [Probes](#probes)
 - [Scaling](#scaling)
+- [Security](#security) ← read before going public
 - [Production checklist](#production-checklist)
 - [Troubleshooting](#troubleshooting)
 
@@ -205,6 +206,13 @@ Resource requests are deliberately small (api 50m/128Mi, web 10m/32Mi); the API'
 limit is set by image-generation payloads (the route caps bodies at 12 MB), not by
 steady-state load.
 
+## Security
+
+A full audit — findings, fixes, the configuration you must set, and a free hosting
+recommendation — is in **[`SECURITY.md`](SECURITY.md)**. The short version: set
+`SESSION_SECRET`, `NODE_ENV=production`, `TRUST_PROXY`, `VITE_ORIGIN` and
+`IMAGE_DAILY_MAX`, and put a hard monthly cap on the OpenAI key.
+
 ## Production checklist
 
 - [ ] `SESSION_SECRET` set to a long random value
@@ -216,6 +224,9 @@ steady-state load.
 - [ ] In-cluster Postgres removed if using a managed one (the production overlay does this)
 - [ ] `LIGHT_STUDY_MOCK` / `ROOM_PHOTO_MOCK` **not** left on in a real environment
 - [ ] Metrics-server installed if you want the HPAs to do anything
+- [ ] `TRUST_PROXY` set to your real hop count (rate limiting is inert without it)
+- [ ] `IMAGE_DAILY_MAX` set, and divided by replica count — the budget is per process
+- [ ] A hard monthly spend limit set in the OpenAI dashboard
 
 ## Troubleshooting
 

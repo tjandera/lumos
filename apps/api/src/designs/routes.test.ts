@@ -94,8 +94,14 @@ describe("designs routes", () => {
     expect(createRes.statusCode).toBe(201);
     const created = createRes.json();
     expect(created.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(created.site.lat).toBe(40.7128);
-    expect(created.site.lng).toBe(-74.006);
+    // Coordinates are coarsened to ~1km on the way in. This test used to assert that
+    // 40.7128 survived verbatim, which encoded a privacy hole: the client coarsened
+    // before sending, but nothing stopped a direct POST storing a precise location that
+    // /share/:token would then hand to anyone with the link. The server enforces it now.
+    expect(created.site.lat).toBe(40.71);
+    expect(created.site.lng).toBe(-74.01);
+    expect(created.site.lat).not.toBe(40.7128);
+    // The north offset is not a location and must survive intact, or the sun is wrong.
     expect(created.site.trueNorthOffsetDeg).toBeCloseTo(90, 6);
 
     // GET returns the stored, migrated current-version document.
@@ -103,7 +109,11 @@ describe("designs routes", () => {
     expect(getRes.statusCode).toBe(200);
     const fetched = getRes.json();
     expect(fetched.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(fetched.site).toEqual({ lat: 40.7128, lng: -74.006, trueNorthOffsetDeg: created.site.trueNorthOffsetDeg });
+    // What was stored is what comes back — coarsened, and identical to the create
+    // response. Nothing along the read path can resurrect the precise coordinates,
+    // because they were never written.
+    expect(fetched.site).toEqual(created.site);
+    expect(fetched.site.lat).toBe(40.71);
   });
 
   it("POST /designs assigns a fresh id even if one is supplied", async () => {

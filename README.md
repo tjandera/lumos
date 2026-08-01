@@ -187,6 +187,8 @@ Nothing here is required to run the app. Each variable switches on an optional f
 | `PORT` | `8787` (`3001` in Docker) | HTTP listen port. |
 | `VITE_ORIGIN` | `http://localhost:5173` | CORS allow-origin. Set to your public URL in production. |
 | `SESSION_SECRET` | *(insecure dev default)* | Signs the ownership cookie. **Set this in any deployment** — the fallback is hard-coded and would let anyone forge ownership of any design. |
+| `TRUST_PROXY` | unset | Hop count to trust `X-Forwarded-For` from. **Set to `1` behind one proxy** — without it every per-IP rate limit becomes one global bucket. |
+| `IMAGE_DAILY_MAX` | `100` | Hard ceiling on billed image calls per day, per process. The image endpoints are unauthenticated by design. |
 | `DATABASE_URL` | unset → file-backed | Postgres connection string. See [Storage backends](#storage-backends). |
 | `OPENAI_API_KEY` | unset | Photo room import and photoreal light-study re-lighting. |
 | `OPENAI_MODEL` | `gpt-5.6` | Vision model for photo import. |
@@ -267,6 +269,11 @@ kubectl apply -k deploy/k8s/overlays/local
 
 Full walkthrough, including image building, secret creation and the build-time API URL
 gotcha: **[`deploy/README.md`](deploy/README.md)**.
+
+**Before pointing a public URL at this, read [`deploy/SECURITY.md`](deploy/SECURITY.md)** —
+the audit findings, the five variables you must set, and a free hosting stack
+(Cloudflare Pages + Google Cloud Run + Neon) chosen for the fact that image generation
+takes 35–90 s, which most free serverless tiers will time out.
 
 ## Performance
 

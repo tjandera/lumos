@@ -22,6 +22,8 @@ import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
 import { lightStudyRoutes } from "./lightStudy/routes.js";
 import type { LightStudyConfig } from "./lightStudy/openai.js";
 import { imageDayRoutes } from "./imageDay/routes.js";
+import { corsOriginMatcher, registerSecurityHeaders, resolveTrustProxy } from "./security.js";
+import { createSpendGuard, resolveDailyImageBudget, type SpendGuard } from "./spendGuard.js";
 import type { ImageDayConfig } from "./imageDay/openai.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -81,20 +83,25 @@ export interface BuildAppOptions {
   /** Override the light-study route's rate-limit window/max (tests). */
   lightStudyRateLimit?: RateLimitOptions;
   imageDayRateLimit?: RateLimitOptions;
+  /** Override the daily billed-image ceiling (tests). Defaults to IMAGE_DAILY_MAX. */
+  spendGuard?: SpendGuard;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? true, bodyLimit: 20 * 1024 * 1024 });
+  const app = Fastify({
+    logger: options.logger ?? true,
+    bodyLimit: 20 * 1024 * 1024,
+    // Without this, `request.ip` is the proxy behind any ingress and every per-IP rate
+    // limit becomes one global bucket. See resolveTrustProxy for why it isn't just `true`.
+    trustProxy: resolveTrustProxy()
+  });
 
+  registerSecurityHeaders(app);
+
+  // Localhost is allowed only outside production — see corsOriginMatcher.
+  const allowOrigin = corsOriginMatcher(options.corsOrigin);
   await app.register(cors, {
-    origin: (origin, cb) => {
-      // Allow any local origin, or fallback to configured origin
-      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-        cb(null, true);
-        return;
-      }
-      cb(null, options.corsOrigin ?? process.env.VITE_ORIGIN ?? "http://localhost:5173");
-    },
+    origin: (origin, cb) => cb(null, allowOrigin(origin ?? undefined)),
     // The session cookie (anonymous ownership) and share-link management
     // both ride on cookies, which fetch() only sends/receives cross-origin
     // when both the client passes `credentials: "include"` AND the server
@@ -186,6 +193,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // the light study's budget rationale — one image model call per moment — but gets its
   // own limiter so a six-frame timelapse can't starve the single-frame relight feature.
   const imageDayRateLimit = createRateLimiter(options.imageDayRateLimit ?? { windowMs: 5 * 60_000, max: 30 });
+  // Rate limits stop one abuser; this stops the aggregate. The image endpoints are
+  // deliberately unauthenticated, so without a ceiling a public URL is a free image
+  // generator funded by whoever owns the key.
+  const spendGuard = options.spendGuard ?? createSpendGuard({ maxPerDay: resolveDailyImageBudget() });
   await app.register(imageDayRoutes, {
     config:
       options.imageDay ?? {
@@ -194,7 +205,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         imageModel: process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1',
         mock: process.env.IMAGE_DAY_MOCK === 'true' || process.env.LIGHT_STUDY_MOCK === 'true'
       },
-    checkRateLimit: imageDayRateLimit
+    checkRateLimit: imageDayRateLimit,
+    spendGuard
   });
   await app.register(designRoutes, { storage, ownership, tokens });
   await app.register(shareRoutes, { storage, tokens });
