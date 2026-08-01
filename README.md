@@ -1,6 +1,6 @@
 <div align="center">
 
-# Marina Studio
+# Project Lumos
 
 ### See the light before you buy the sofa.
 
