@@ -61,13 +61,17 @@ export async function imageDayRoutes(
     config: ImageDayConfig;
     checkRateLimit?: RateLimitCheck;
     /** Daily ceiling on billed calls. Absent in tests that don't exercise it. */
-    spendGuard?: { tryConsume(): boolean; refund(): void; status(): { remaining: number; resetsAt: string } };
+    spendGuard?: {
+      tryConsume(): Promise<boolean>;
+      refund(): Promise<void>;
+      status(): Promise<{ remaining: number; resetsAt: string }>;
+    };
   },
 ): Promise<void> {
   const { config, checkRateLimit, spendGuard } = opts;
 
   app.get('/image-day/status', async () => {
-    const budget = spendGuard?.status();
+    const budget = await spendGuard?.status();
     return {
       // A spent budget is reported as unavailable so the client explains itself rather
       // than letting someone queue twelve images that will all be refused.
@@ -80,7 +84,7 @@ export async function imageDayRoutes(
   });
 
   app.post('/image-day/analyze', { bodyLimit: MAX_BODY_BYTES }, async (request, reply) => {
-    if (checkRateLimit && !checkRateLimit(request.ip)) {
+    if (checkRateLimit && !(await checkRateLimit(request.ip))) {
       return reply.code(429).send({ error: 'Too many requests — try again shortly.' });
     }
     const body = analyzeSchema.safeParse(request.body);
@@ -97,7 +101,7 @@ export async function imageDayRoutes(
   });
 
   app.post('/image-day/generate', { bodyLimit: MAX_BODY_BYTES }, async (request, reply) => {
-    if (checkRateLimit && !checkRateLimit(request.ip)) {
+    if (checkRateLimit && !(await checkRateLimit(request.ip))) {
       return reply.code(429).send({ error: 'Too many requests — try again shortly.' });
     }
     const body = generateSchema.safeParse(request.body);
@@ -125,8 +129,8 @@ export async function imageDayRoutes(
 
     // Reserved before the call, refunded if it never reaches the model. Mock runs are
     // free, so they don't touch the budget at all.
-    if (!config.mock && spendGuard && !spendGuard.tryConsume()) {
-      const { resetsAt } = spendGuard.status();
+    if (!config.mock && spendGuard && !(await spendGuard.tryConsume())) {
+      const { resetsAt } = await spendGuard.status();
       return reply.code(429).send({
         error: `Daily image budget reached for this server. It resets at ${resetsAt}.`,
       });
@@ -141,7 +145,7 @@ export async function imageDayRoutes(
     } catch (err) {
       // No image was produced, so the reservation goes back — a misconfigured key must
       // not silently consume the day's budget one failed request at a time.
-      if (!config.mock) spendGuard?.refund();
+      if (!config.mock) await spendGuard?.refund();
       if (err instanceof ImageDayConfigError) return reply.code(503).send({ error: err.message });
       // The sanitiser picks the status: a rejected key is our misconfiguration (503),
       // a rate limit is 429, an OpenAI outage is 502.

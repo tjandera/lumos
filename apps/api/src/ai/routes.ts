@@ -35,7 +35,7 @@ export async function aiRoutes(app: FastifyInstance, options: AiRoutesOptions): 
   const { provider, catalog, checkRateLimit } = options;
 
   app.post<{ Body: ChatRequestBody }>("/ai/chat", async (request, reply) => {
-    if (!checkRateLimit(request.ip)) {
+    if (!(await checkRateLimit(request.ip))) {
       reply.code(429);
       return { error: "rate_limited", message: "Too many AI requests — please wait a moment and try again." };
     }

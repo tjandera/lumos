@@ -25,18 +25,33 @@ unauthenticated by design.** Read [Cost exposure](#cost-exposure-read-this-one).
 | **Medium** | No security headers on API responses. | Fixed — `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a locked-down CSP, `Cross-Origin-Resource-Policy`, and HSTS in production only (setting it over local http poisons the whole host for other ports). |
 | **Low** | The rate limiter's map never evicted expired entries, so it grew once per distinct IP forever — visitor-driven memory growth on a public deployment. | Fixed — sweeps on write, proportional to live traffic, no timer. |
 
-### Known and accepted
+### Also fixed (previously "accepted")
 
-- **Rate limits and the budget are per-process.** Two replicas means two counters, so the
-  effective ceiling is `replicas × IMAGE_DAILY_MAX`. Divide accordingly, or pin the API to
-  one instance. A shared counter means Redis, and a service that cannot boot without Redis
-  is a worse default than one that over-counts by a known factor.
-- **`sameSite: 'lax'` on the session cookie.** Correct for the single-origin ingress this
-  repo ships. If you split the web and API across different registrable domains, the
-  cookie stops flowing on cross-site requests and design ownership breaks; that needs
-  `sameSite: 'none'` **and** `secure`, which is a deliberate decision, not a default.
-- **Anonymous ownership.** There are no accounts. Whoever holds the cookie owns the design.
-  Clearing cookies loses access. That is the intended product, not an oversight.
+- **Rate limits and the budget were per-process**, so `N` replicas silently meant `N ×`
+  every configured limit — and nothing in a response said which pod had answered. Counters
+  now live in `usage_counters` in Postgres (`usage/counterStore.ts`) whenever a database is
+  configured, and in process memory only when one isn't. One atomic
+  `INSERT … ON CONFLICT DO UPDATE … RETURNING` does the expire-or-increment decision under
+  the row lock Postgres already takes, so two replicas racing the same key get 1 and 2,
+  never 1 and 1. Redis was rejected as a second piece of infrastructure and a service that
+  couldn't boot without it; the connection we already have costs nothing.
+
+  Both fail **closed** if the counter is unreachable. The readiness probe already removes a
+  pod with no database from the Service, so "the counter is down" must not become "the
+  limits are off".
+
+- **`sameSite: 'lax'` was hard-coded**, which silently breaks design ownership on a split
+  web/API deployment: browsers won't attach a `lax` cookie to a cross-site XHR, so every
+  request looks like a fresh visitor and saved designs become unreachable — with nothing
+  erroring. Now `SESSION_COOKIE_SAMESITE` (`lax` default, or `none` / `strict`), and `none`
+  forces `secure` in every environment, because a `SameSite=None` cookie without `Secure`
+  is dropped by the browser without a word, reproducing the exact symptom the setting
+  exists to cure.
+
+### Still accepted
+
+- **Anonymous ownership.** There are no accounts. Whoever holds the cookie owns the design;
+  clearing cookies loses access. That is the intended product, not an oversight.
 
 ## Cost exposure (read this one)
 
@@ -89,7 +104,8 @@ Set on the API before going public:
 | `NODE_ENV` | `production` | Turns on `secure` cookies and HSTS, and turns *off* the localhost CORS allowance. |
 | `TRUST_PROXY` | `1` on Cloud Run; `2` behind Cloudflare → Cloud Run | Without it every rate limit is one global bucket. Count your actual hops. |
 | `VITE_ORIGIN` | your Pages URL | The CORS allowlist. |
-| `IMAGE_DAILY_MAX` | e.g. `50` | Your ceiling. Divide by replica count. |
+| `IMAGE_DAILY_MAX` | e.g. `50` | Your ceiling. Now genuinely global when `DATABASE_URL` is set — no dividing by replica count. |
+| `SESSION_COOKIE_SAMESITE` | `none` **only if** web and API are on different domains | Leave unset for the single-origin ingress. Setting `none` also forces `Secure`. |
 | `DATABASE_URL` | Neon connection string | Otherwise designs live on a per-instance disk and vanish on redeploy. |
 | `OPENAI_API_KEY` | via Secret Manager, never an env literal in a config file | See the leak post-mortem in this repo's history for why. |
 
@@ -110,4 +126,14 @@ Checked against a running server with `NODE_ENV=production`:
 - `IMAGE_DAILY_MAX=2` against the live key → two images generated, third refused with 429,
   `/image-day/status` then reporting `available: false`.
 - `pnpm audit --prod` → no known vulnerabilities.
-- 189 API tests passing, including 22 new ones for the guard and the CORS/proxy logic.
+- Two independent store instances over one database — standing in for two replicas —
+  share a single counter: a limit of 3 allows 3 total across both, not 3 each. A daily
+  ceiling of 2 allows 2 images total, and a refund on one instance frees budget on the
+  other.
+- 209 API tests passing.
+
+**Not verified:** the cross-replica tests run against `pg-mem`, which is single-threaded,
+so they prove the *logic* is shared rather than that the statement is atomic under genuine
+parallel load. The atomicity argument is structural — one statement, `ON CONFLICT` takes
+the row lock — but it has not been exercised against a real Postgres under concurrency.
+Worth a load test before you rely on the ceiling to the last image.

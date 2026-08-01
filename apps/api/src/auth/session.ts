@@ -36,6 +36,37 @@ function hmac(uid: string, secret: string): string {
   return createHmac("sha256", secret).update(uid).digest("base64url");
 }
 
+/**
+ * `sameSite`/`secure` for the ownership cookie.
+ *
+ * `lax` is right when the web app and the API share an origin — which is what the bundled
+ * ingress does — and wrong the moment they don't. A browser will not attach a `lax` cookie
+ * to a cross-site XHR, so splitting the two across domains silently breaks design
+ * ownership: every request looks like a brand-new visitor, and saved designs become
+ * unreachable. That failure is confusing precisely because nothing errors.
+ *
+ * `none` is the fix for a split deployment, and browsers only honour it alongside
+ * `secure`, so the two are decided together here rather than left to be mismatched:
+ *
+ *   SESSION_COOKIE_SAMESITE unset -> lax    (single origin; secure in production)
+ *   SESSION_COOKIE_SAMESITE=none  -> none + secure, always, even outside production
+ *   SESSION_COOKIE_SAMESITE=strict-> strict
+ *
+ * `none` forces `secure` regardless of NODE_ENV because a `SameSite=None` cookie without
+ * `Secure` is rejected outright — silently, by the browser — which would leave the same
+ * broken-ownership symptom the setting exists to cure.
+ */
+export function resolveCookiePolicy(env = process.env): {
+  sameSite: "lax" | "none" | "strict";
+  secure: boolean;
+} {
+  const raw = env.SESSION_COOKIE_SAMESITE?.trim().toLowerCase();
+  const isProd = env.NODE_ENV === "production";
+  if (raw === "none") return { sameSite: "none", secure: true };
+  if (raw === "strict") return { sameSite: "strict", secure: isProd };
+  return { sameSite: "lax", secure: isProd };
+}
+
 /** Sign a uid into a `uid.hmac` cookie value. */
 export function signSessionValue(uid: string, secret: string): string {
   return `${uid}.${hmac(uid, secret)}`;
@@ -98,9 +129,8 @@ export async function registerSession(app: FastifyInstance, options: RegisterSes
       uid = randomUUID();
       reply.setCookie(SESSION_COOKIE_NAME, signSessionValue(uid, options.secret), {
         httpOnly: true,
-        sameSite: "lax",
+        ...resolveCookiePolicy(),
         path: "/",
-        secure: process.env.NODE_ENV === "production",
         maxAge: 60 * 60 * 24 * 365
       });
     }

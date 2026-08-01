@@ -3,14 +3,17 @@ import { ensurePgSchema, pingPgPool, type PgPool } from "./pool.js";
 import { createRawTestPgPool, createTestPgPool } from "./testPgPool.js";
 
 describe("pool", () => {
-  it("ensurePgSchema creates the designs/owners/shares tables (CREATE TABLE IF NOT EXISTS)", async () => {
+  it("ensurePgSchema creates every table the app needs (CREATE TABLE IF NOT EXISTS)", async () => {
     const { pool, cleanup } = createRawTestPgPool();
     try {
       await expect(ensurePgSchema(pool)).resolves.toBeUndefined();
       const tables = await pool.query<{ table_name: string }>(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
       );
-      expect(tables.rows.map((r) => r.table_name)).toEqual(["designs", "owners", "shares"]);
+      // `usage_counters` backs the rate limits and the daily spend ceiling. It has to be
+      // here rather than in process memory, or both are silently multiplied by the
+      // replica count — see usage/counterStore.ts.
+      expect(tables.rows.map((r) => r.table_name)).toEqual(["designs", "owners", "shares", "usage_counters"]);
     } finally {
       await cleanup();
     }

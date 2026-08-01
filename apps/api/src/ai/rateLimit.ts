@@ -1,10 +1,15 @@
 /**
- * Simple in-memory per-key (per-IP) fixed-window rate limiter for the AI
- * route. Intentionally minimal — single-process, no external store — since
- * the AI proxy is the only endpoint that calls out to a (potentially
- * metered) LLM provider and needs basic abuse protection, not a general
- * rate-limiting subsystem.
+ * Per-key (per-IP) fixed-window rate limiting for the routes that call a metered provider.
+ *
+ * The counter itself now lives in `usage/counterStore.ts` — Postgres when a database is
+ * configured, process memory otherwise. That indirection is the whole point: this used to
+ * be a `Map` inside one process, so a configured "30 requests per 5 minutes" was really
+ * 30 x replicas, and nothing in the response said which pod had answered.
+ *
+ * Checks are async because a shared counter means a round trip. Free in context: the
+ * routes this guards then spend thirty seconds or more inside an image model.
  */
+import type { CounterStore } from "../usage/counterStore.js";
 
 export interface RateLimitOptions {
   /** Window length in ms. Defaults to 60s. */
@@ -13,49 +18,32 @@ export interface RateLimitOptions {
   max?: number;
 }
 
-export type RateLimitCheck = (key: string) => boolean;
-
-/** Test-only view of how many keys are being tracked, to prove sweeping works. */
-export interface RateLimiterInternals {
-  size(): number;
-}
+/** Resolves `true` if the request may proceed, `false` if it should be refused with 429. */
+export type RateLimitCheck = (key: string) => Promise<boolean>;
 
 /**
- * Create a rate-limit checker. Returns a function that returns `true` if the
- * request identified by `key` is allowed, `false` if it should be rejected
- * (429). `now` is injectable for deterministic tests.
+ * Build a checker over `store`.
+ *
+ * `namespace` keeps the chat, light-study and image-day budgets in separate buckets —
+ * without it, using the assistant would eat into the same visitor's image allowance.
  */
 export function createRateLimiter(
+  store: CounterStore,
+  namespace: string,
   options: RateLimitOptions = {},
-  now: () => number = Date.now,
-  internals?: RateLimiterInternals extends never ? never : { expose?: (i: RateLimiterInternals) => void },
 ): RateLimitCheck {
   const windowMs = options.windowMs ?? 60_000;
   const max = options.max ?? 20;
-  const hits = new Map<string, { count: number; resetAt: number }>();
-  internals?.expose?.({ size: () => hits.size });
 
-  // Expired entries were never removed, so the map grew once per distinct key forever.
-  // On a public deployment "distinct key" means "distinct IP", which makes unbounded
-  // growth something a visitor can drive rather than an eventual curiosity. Sweeping on
-  // write keeps it proportional to live traffic without needing a timer.
-  let lastSweep = now();
-  const sweep = (current: number) => {
-    if (current - lastSweep < windowMs) return;
-    lastSweep = current;
-    for (const [k, v] of hits) if (current >= v.resetAt) hits.delete(k);
-  };
-
-  return function check(key: string): boolean {
-    const current = now();
-    sweep(current);
-    const entry = hits.get(key);
-    if (!entry || current >= entry.resetAt) {
-      hits.set(key, { count: 1, resetAt: current + windowMs });
-      return true;
+  return async function check(key: string): Promise<boolean> {
+    try {
+      const { count } = await store.hit(`rl:${namespace}:${key}`, windowMs);
+      return count <= max;
+    } catch {
+      // Fail closed. These limiters guard spend, and the readiness probe already removes
+      // a pod whose database is unreachable from the Service — so "the counter is
+      // unavailable" must not quietly become "the limits are off".
+      return false;
     }
-    if (entry.count >= max) return false;
-    entry.count += 1;
-    return true;
   };
 }

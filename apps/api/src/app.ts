@@ -17,6 +17,12 @@ import { PostgresShareTokenStore } from "./share/postgresTokenStore.js";
 import type { ShareTokenStore } from "./share/tokenStore.js";
 import { registerSession, resolveSessionSecret } from "./auth/session.js";
 import { createRateLimiter, type RateLimitOptions } from "./ai/rateLimit.js";
+import {
+  createMemoryCounterStore,
+  createPostgresCounterStore,
+  pruneUsageCounters,
+  type CounterStore
+} from "./usage/counterStore.js";
 import { createPgPool, ensurePgSchema, pingPgPool, type PgPool } from "./db/pool.js";
 import { roomPhotoRoutes, type RoomPhotoConfig } from "./roomPhoto/routes.js";
 import { lightStudyRoutes } from "./lightStudy/routes.js";
@@ -85,6 +91,12 @@ export interface BuildAppOptions {
   imageDayRateLimit?: RateLimitOptions;
   /** Override the daily billed-image ceiling (tests). Defaults to IMAGE_DAILY_MAX. */
   spendGuard?: SpendGuard;
+  /**
+   * Where rate-limit and spend counters live. Defaults to Postgres when a database is
+   * configured — which is what makes the limits mean the same thing across replicas —
+   * and to process memory otherwise.
+   */
+  counterStore?: CounterStore;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -134,12 +146,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
   }
 
+  // Shared when there's a database, per-process when there isn't. A single instance is
+  // correct either way; only multi-replica deployments need the shared path, and those
+  // are exactly the ones that have Postgres.
+  const counters: CounterStore =
+    options.counterStore ?? (pgPool ? createPostgresCounterStore(pgPool) : createMemoryCounterStore());
+
   const storage =
     options.storage ?? (pgPool ? new PostgresDesignStorage(pgPool) : new FileDesignStorage(options.dataDir ?? defaultDataDir));
   const ownership =
     options.ownership ?? (pgPool ? new PostgresOwnershipStore(pgPool) : new FileOwnershipStore(options.dataDir ?? defaultDataDir));
   const tokens =
     options.tokens ?? (pgPool ? new PostgresShareTokenStore(pgPool) : new FileShareTokenStore(options.dataDir ?? defaultDataDir));
+
+  // Expired counter rows are logically dead the moment `reset_at` passes; this is only
+  // about reclaiming space. Hourly, and unref'd so it never holds the process open.
+  if (pgPool) {
+    const prune = setInterval(() => {
+      void pruneUsageCounters(pgPool).catch(() => {});
+    }, 60 * 60_000);
+    prune.unref?.();
+    app.addHook("onClose", async () => clearInterval(prune));
+  }
 
   // Graceful shutdown: close the pool we created (not one injected by a
   // caller/test, which owns its own lifecycle) when the Fastify instance
@@ -179,7 +207,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   // Image generation is the priciest call this server can make, so it gets a much
   // tighter budget than the chat proxy's 20/min default.
-  const lightStudyRateLimit = createRateLimiter(options.lightStudyRateLimit ?? { windowMs: 5 * 60_000, max: 12 });
+  const lightStudyRateLimit = createRateLimiter(counters, "light-study", options.lightStudyRateLimit ?? { windowMs: 5 * 60_000, max: 12 });
   await app.register(lightStudyRoutes, {
     config:
       options.lightStudy ?? {
@@ -192,11 +220,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // "Image Generation Day": a user's own room photo re-lit across the real day. Shares
   // the light study's budget rationale — one image model call per moment — but gets its
   // own limiter so a six-frame timelapse can't starve the single-frame relight feature.
-  const imageDayRateLimit = createRateLimiter(options.imageDayRateLimit ?? { windowMs: 5 * 60_000, max: 30 });
+  const imageDayRateLimit = createRateLimiter(counters, "image-day", options.imageDayRateLimit ?? { windowMs: 5 * 60_000, max: 30 });
   // Rate limits stop one abuser; this stops the aggregate. The image endpoints are
   // deliberately unauthenticated, so without a ceiling a public URL is a free image
   // generator funded by whoever owns the key.
-  const spendGuard = options.spendGuard ?? createSpendGuard({ maxPerDay: resolveDailyImageBudget() });
+  const spendGuard = options.spendGuard ?? createSpendGuard(counters, resolveDailyImageBudget());
   await app.register(imageDayRoutes, {
     config:
       options.imageDay ?? {
@@ -251,7 +279,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // Only the routes are lazy now; `createRateLimiter` is imported statically above
     // (it's a tiny dependency-free module, and the light-study route needs it eagerly).
     const { aiRoutes } = await import("./ai/routes.js");
-    const checkRateLimit = createRateLimiter(options.aiRateLimit);
+    const checkRateLimit = createRateLimiter(counters, "ai-chat", options.aiRateLimit);
     await app.register(aiRoutes as never, { provider, catalog: catalogItems, checkRateLimit } as never);
   }
 

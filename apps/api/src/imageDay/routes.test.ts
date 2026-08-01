@@ -111,7 +111,7 @@ describe('image-day routes', () => {
     let calls = 0;
     await app2.register(imageDayRoutes, {
       config: { mock: true, visionModel: 'v', imageModel: 'i' },
-      checkRateLimit: () => ++calls <= 1,
+      checkRateLimit: async () => ++calls <= 1,
     });
     app = app2;
     const payload = { imageDataUrl: PNG, moment: 'midday', site: LONDON };

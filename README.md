@@ -188,7 +188,8 @@ Nothing here is required to run the app. Each variable switches on an optional f
 | `VITE_ORIGIN` | `http://localhost:5173` | CORS allow-origin. Set to your public URL in production. |
 | `SESSION_SECRET` | *(insecure dev default)* | Signs the ownership cookie. **Set this in any deployment** — the fallback is hard-coded and would let anyone forge ownership of any design. |
 | `TRUST_PROXY` | unset | Hop count to trust `X-Forwarded-For` from. **Set to `1` behind one proxy** — without it every per-IP rate limit becomes one global bucket. |
-| `IMAGE_DAILY_MAX` | `100` | Hard ceiling on billed image calls per day, per process. The image endpoints are unauthenticated by design. |
+| `IMAGE_DAILY_MAX` | `100` | Hard ceiling on billed image calls per day. Shared across replicas when `DATABASE_URL` is set. The image endpoints are unauthenticated by design. |
+| `SESSION_COOKIE_SAMESITE` | `lax` | Set to `none` only when the web app and API are on different domains — `lax` cookies aren't sent cross-site, which silently breaks design ownership. |
 | `DATABASE_URL` | unset → file-backed | Postgres connection string. See [Storage backends](#storage-backends). |
 | `OPENAI_API_KEY` | unset | Photo room import and photoreal light-study re-lighting. |
 | `OPENAI_MODEL` | `gpt-5.6` | Vision model for photo import. |

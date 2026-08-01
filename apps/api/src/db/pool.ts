@@ -60,4 +60,16 @@ export async function ensurePgSchema(pool: PgPool): Promise<void> {
       design_id TEXT NOT NULL
     )
   `);
+  // Shared rate-limit and spend counters. Without these living outside the process,
+  // every limit is silently multiplied by the replica count — see usage/counterStore.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usage_counters (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      reset_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  // Lets the periodic prune do an index scan instead of a sequential one once the table
+  // has seen a lot of distinct client addresses.
+  await pool.query(`CREATE INDEX IF NOT EXISTS usage_counters_reset_at ON usage_counters (reset_at)`);
 }

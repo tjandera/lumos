@@ -72,3 +72,36 @@ describe("corsOriginMatcher", () => {
     expect(allow("https://evil-interior.example.com")).toBe(false);
   });
 });
+
+describe("resolveCookiePolicy", () => {
+  it("defaults to lax, secure only in production", async () => {
+    const { resolveCookiePolicy } = await import("./auth/session.js");
+    expect(resolveCookiePolicy({ NODE_ENV: "production" })).toEqual({ sameSite: "lax", secure: true });
+    expect(resolveCookiePolicy({ NODE_ENV: "development" })).toEqual({ sameSite: "lax", secure: false });
+  });
+
+  it("forces secure alongside sameSite=none, in every environment", async () => {
+    // A SameSite=None cookie without Secure is dropped by the browser without a word,
+    // which reproduces exactly the broken-ownership symptom the setting exists to cure.
+    const { resolveCookiePolicy } = await import("./auth/session.js");
+    expect(resolveCookiePolicy({ SESSION_COOKIE_SAMESITE: "none" })).toEqual({ sameSite: "none", secure: true });
+    expect(resolveCookiePolicy({ SESSION_COOKIE_SAMESITE: "none", NODE_ENV: "development" })).toEqual({
+      sameSite: "none",
+      secure: true,
+    });
+  });
+
+  it("supports strict, and ignores unknown values rather than guessing", async () => {
+    const { resolveCookiePolicy } = await import("./auth/session.js");
+    expect(resolveCookiePolicy({ SESSION_COOKIE_SAMESITE: "strict", NODE_ENV: "production" })).toEqual({
+      sameSite: "strict",
+      secure: true,
+    });
+    expect(resolveCookiePolicy({ SESSION_COOKIE_SAMESITE: "banana" })).toEqual({ sameSite: "lax", secure: false });
+  });
+
+  it("is case-insensitive, since env vars get typed by hand", async () => {
+    const { resolveCookiePolicy } = await import("./auth/session.js");
+    expect(resolveCookiePolicy({ SESSION_COOKIE_SAMESITE: "None" }).sameSite).toBe("none");
+  });
+});

@@ -47,7 +47,7 @@ export async function lightStudyRoutes(
   app.post('/light-study/relight', { bodyLimit: MAX_BODY_BYTES }, async (request, reply) => {
     // Image generation is the most expensive thing this server can be asked to do, so
     // it's rate-limited on the same basis as the AI proxy.
-    if (checkRateLimit && !checkRateLimit(request.ip)) {
+    if (checkRateLimit && !(await checkRateLimit(request.ip))) {
       return reply.code(429).send({ error: 'Too many requests — try again shortly.' });
     }
 
