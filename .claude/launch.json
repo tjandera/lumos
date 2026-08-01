@@ -8,10 +8,10 @@
       "port": 5173
     },
     {
-      "name": "dev",
+      "name": "api",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["-C", "/Users/matth/Developer/interior_design/interior_design", "dev"],
-      "port": 5173
+      "runtimeArgs": ["-C", "/Users/matth/Developer/interior_design/interior_design", "--filter", "@interior/api", "dev"],
+      "port": 8787
     }
   ]
 }
