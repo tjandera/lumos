@@ -95,10 +95,16 @@ spec:
 
           resources:
             requests: { cpu: 50m, memory: 128Mi }
-            # Image generation holds a multi-MB base64 payload in memory (the
-            # route caps bodies at 12 MB), so the ceiling is set by that, not by
-            # steady-state load.
-            limits: { cpu: 500m, memory: 512Mi }
+            # Sized by concurrent image work, not by steady-state load. Each in-flight
+            # request holds an uploaded photo (image-day caps bodies at 16 MB) plus the
+            # generated PNG, and base64 decoding transiently doubles the buffer. The
+            # Image Generation Day panel lets someone fan a twelve-moment run out all at
+            # once, so a single user can have twelve of those in flight against one pod:
+            # on the order of 250 MB of payload on top of Node's own baseline. That is a
+            # calculated headroom figure, not a measured OOM — but it is close enough to
+            # the previous 512Mi limit that running twelve-wide against it would be
+            # gambling. Lower it again if you cap concurrency in the client instead.
+            limits: { cpu: 1000m, memory: 1Gi }
 
           securityContext:
             allowPrivilegeEscalation: false

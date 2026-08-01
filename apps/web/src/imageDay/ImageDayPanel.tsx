@@ -23,12 +23,26 @@ const PLAYBACK_MS = 900;
 /**
  * How many images to have in flight at once.
  *
- * Four, not twelve: browsers cap concurrent connections per origin at six on HTTP/1.1, so
- * beyond that requests queue invisibly in the network stack, and image APIs rate-limit
- * hard enough that a full fan-out mostly buys 429s. Four is the sweet spot where the wall
- * clock drops by roughly 4x and the retry path stays quiet.
+ * Four is the default rather than "all", because three separate ceilings sit above this
+ * and only one of them is ours:
+ *
+ *  - **The browser.** Over HTTP/1.1 — which is what `pnpm dev` serves — six sockets per
+ *    origin is the hard cap, so asking for twelve gets you six on the wire and six
+ *    queued invisibly in the network stack where nothing can cancel them. Behind a TLS
+ *    ingress the connection is HTTP/2 and this stops mattering.
+ *  - **The image API.** Rate limits are per-minute and tier-dependent. Over-fanning turns
+ *    a working run into 429s; the pool retries them, but backoff re-serialises the work,
+ *    so past a point more parallelism buys nothing.
+ *  - **Our own API process.** Each in-flight request holds the uploaded photo plus the
+ *    generated PNG in memory. Twelve at once is a few hundred MB — see the note on the
+ *    api container's memory limit in `deploy/k8s/base/api.yaml`.
+ *
+ * `'all'` is offered because none of these are absolute, and someone on HTTP/2 with a
+ * generous tier should be able to take the whole day at once.
  */
-const CONCURRENCY = 4;
+const CONCURRENCY_CHOICES = [1, 4, 8, 'all'] as const;
+type ConcurrencyChoice = (typeof CONCURRENCY_CHOICES)[number];
+const DEFAULT_CONCURRENCY: ConcurrencyChoice = 4;
 
 interface Frame {
   momentId: string;
@@ -68,6 +82,7 @@ export function ImageDayPanel() {
   const [playing, setPlaying] = useState(false);
   /** Six representative moments, or the full twelve. */
   const [depth, setDepth] = useState<'quick' | 'full'>('quick');
+  const [concurrency, setConcurrency] = useState<ConcurrencyChoice>(DEFAULT_CONCURRENCY);
   const contextRef = useRef<RoomLightContext | null>(null);
   const cancelRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -154,12 +169,17 @@ export function ImageDayPanel() {
       setError(null);
       setPlaying(false);
       setProgress({ done: 0, total: ids.length });
+      const lanes = concurrency === 'all' ? ids.length : Math.min(concurrency, ids.length);
       setBusy(ids.length > 1 ? `Generating ${ids.length} moments…` : 'Generating…');
 
       // Once, before the fan-out: every image needs the same room description, and
       // running the vision pass N times would both cost more and defeat its purpose.
       const context = await ensureContext(photo);
-      setBusy(ids.length > 1 ? `Generating ${ids.length} moments, ${CONCURRENCY} at a time…` : 'Generating…');
+      setBusy(
+        ids.length > 1
+          ? `Generating ${ids.length} moments${lanes < ids.length ? `, ${lanes} at a time` : ' all at once'}…`
+          : 'Generating…',
+      );
 
       let done = 0;
       let firstError: unknown;
@@ -200,7 +220,7 @@ export function ImageDayPanel() {
           return frame;
         },
         {
-          concurrency: CONCURRENCY,
+          concurrency: lanes,
           isCancelled: () => cancelRef.current,
           onSettled: () => setProgress({ done: ++done, total: ids.length }),
         },
@@ -219,7 +239,7 @@ export function ImageDayPanel() {
       setProgress(null);
       setIndex(0);
     },
-    [photo, schedule, ensureContext, site.lat, site.lng, site.trueNorthOffsetDeg, site.date],
+    [photo, schedule, ensureContext, concurrency, site.lat, site.lng, site.trueNorthOffsetDeg, site.date],
   );
 
   /**
@@ -407,12 +427,31 @@ export function ImageDayPanel() {
                       </button>
                     ))}
                   </div>
+                  {/* Speed. Named for what it does rather than for a number, since the
+                      real ceiling is the image API's rate limit, not this control. */}
+                  <select
+                    value={String(concurrency)}
+                    onChange={(e) =>
+                      setConcurrency(e.target.value === 'all' ? 'all' : (Number(e.target.value) as ConcurrencyChoice))
+                    }
+                    disabled={!!busy}
+                    className="rounded-md border border-white/15 bg-transparent px-1.5 py-1 text-[11px] text-white/70 disabled:opacity-40"
+                    title="How many images to request at once. Cost is identical either way — only the wait changes. 'All at once' is fastest where the connection is HTTP/2 and the API tier allows it; on a plain HTTP/1.1 dev server the browser still caps the wire at six."
+                  >
+                    {CONCURRENCY_CHOICES.map((c) => (
+                      <option key={String(c)} value={String(c)} className="bg-neutral-900">
+                        {c === 1 ? 'One at a time' : c === 'all' ? 'All at once' : `${c} at a time`}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     disabled={!canRun}
                     onClick={() => runMoments(runIds)}
                     className="inline-flex items-center gap-1 rounded-md bg-violet-500/85 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-40"
-                    title={`${runIds.length} image-model calls, ${CONCURRENCY} at a time — roughly ${Math.ceil(
-                      (runIds.length / CONCURRENCY) * 35,
+                    title={`${runIds.length} image-model calls, ${
+                      concurrency === 'all' ? 'all at once' : `${concurrency} at a time`
+                    } — roughly ${Math.ceil(
+                      (runIds.length / (concurrency === 'all' ? runIds.length : concurrency)) * 35,
                     )}s`}
                   >
                     <Zap size={12} /> Generate {runIds.length}

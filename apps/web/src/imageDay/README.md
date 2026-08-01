@@ -121,19 +121,33 @@ about it.
 ## Running them in parallel
 
 Generation is ~30s of *waiting*, not of local work, so a run spends nearly all its time
-idle. `runPool` keeps **4 in flight**:
+idle. `runPool` fans out; the panel's dropdown picks how far — one at a time, 4, 8, or
+**all at once**. Cost is identical either way: the same billed calls, a different wall
+clock.
 
-| | Sequential | 4 at a time |
-| --- | --- | --- |
-| Quick 6 | ~3 min | ~50s |
-| Full 12 | ~6 min | ~1.5 min |
+| | One at a time | 4 at a time | All at once |
+| --- | --- | --- | --- |
+| Quick 6 | ~3 min | ~50s | ~35s |
+| Full 12 | ~6 min | ~1.5 min | ~35s |
 
-Identical cost — same number of billed calls, only the wall clock changes.
+**4 is the default, not the ceiling.** Three limits sit above this control and only one of
+them is ours:
 
-Four rather than all twelve, for three reasons: browsers cap concurrent connections per
-origin at six on HTTP/1.1, so beyond that requests queue invisibly in the network stack
-where nothing can cancel them; image APIs rate-limit hard enough that a full fan-out
-mostly buys 429s; and a smaller pool keeps the retry path quiet.
+1. **The browser, on HTTP/1.1 only.** Six sockets per origin is a hard cap, so "all at
+   once" over plain HTTP gets six on the wire and the rest queued invisibly in the network
+   stack where nothing can cancel them. Measured: `pnpm dev` negotiates `http/1.1`. Behind
+   a TLS ingress the connection is HTTP/2 and this stops applying — that is where "all at
+   once" actually pays off.
+2. **The image API's rate limit.** Per-minute and tier-dependent. Over-fanning turns a
+   working run into 429s; the pool retries with backoff, which re-serialises the work, so
+   past a point more parallelism buys nothing at all.
+3. **Our API process's memory.** Every in-flight request holds an uploaded photo (16 MB
+   body cap) plus the generated PNG, and base64 decoding transiently doubles it. Twelve at
+   once is a few hundred MB against one pod, which is why `deploy/k8s/base/api.yaml` sets
+   the api container to 1Gi rather than 512Mi.
+
+So: keep 4 unless you are on HTTP/2 with a generous tier, in which case "all at once" is
+the fastest the feature gets.
 
 The pool retries 429s and genuine upstream 5xx with exponential backoff, but **not 503** —
 our API uses that specifically for "the key is bad" or "the account has no credit", and

@@ -36,6 +36,14 @@ describe('runPool', () => {
     expect(t.peak()).toBeGreaterThan(1);
   });
 
+  it('runs everything at once when concurrency matches the item count', async () => {
+    // The "All at once" setting resolves to lanes === items.length, so the pool must
+    // genuinely fan the whole set out rather than silently clamping to some internal max.
+    const t = tracking(3);
+    await runPool([...Array(12).keys()], t.worker, { concurrency: 12, sleep: noSleep });
+    expect(t.peak()).toBe(12);
+  });
+
   it('handles fewer items than lanes without hanging', async () => {
     const out = await runPool([7], async (n) => n, { concurrency: 8, sleep: noSleep });
     expect(out.map((r) => r.value)).toEqual([7]);
