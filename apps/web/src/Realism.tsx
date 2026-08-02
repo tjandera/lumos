@@ -182,15 +182,28 @@ export function RealismEffects({
  * inner try/catch so a driver that chokes on it still leaves bloom running.
  */
 function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: boolean }) {
-  const { gl, scene, camera, size } = useThree();
+  const { gl, scene, camera, size, invalidate } = useThree();
   const composerRef = useRef<EffectComposer | null>(null);
+
+  /**
+   * What actually forces a rebuild, split from what doesn't.
+   *
+   * The composer used to be keyed on `quality` wholesale, so every tier change tore it
+   * down and built a new one — including low <-> medium, where the effect chain is
+   * *identical* and only the MSAA sample count differs. That is the most common move the
+   * adaptive governor makes, and it was paying for a full rebuild to change one number.
+   *
+   * Only the pass list needs reconstructing, and only SSAO and depth of field change it.
+   */
+  const wantsSsao = quality === 'high';
+  const multisampling = quality === 'low' ? 0 : 4;
 
   useEffect(() => {
     let composer: EffectComposer | null = null;
     const prevTone = gl.toneMapping;
     try {
       composer = new EffectComposer(gl, {
-        multisampling: quality === 'low' ? 0 : 4,
+        multisampling,
         frameBufferType: THREE.HalfFloatType,
       });
       composer.addPass(new RenderPass(scene, camera));
@@ -203,9 +216,15 @@ function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: bool
       });
 
       let ssao: SSAOEffect | null = null;
-      if (quality === 'high') {
+      if (wantsSsao) {
+        // Added to the composer *before* the effect that reads its texture is built: if
+        // the SSAOEffect constructor throws, an unattached NormalPass would never be
+        // disposed, and since a quality change rebuilds this whole block, that leak
+        // compounds every time the governor moves the tier.
+        let normalPass: NormalPass | null = null;
         try {
-          const normalPass = new NormalPass(scene, camera, { resolutionScale: 0.75 });
+          normalPass = new NormalPass(scene, camera, { resolutionScale: 0.75 });
+          composer.addPass(normalPass);
           ssao = new SSAOEffect(camera, normalPass.texture, {
             samples: 10,
             rings: 4,
@@ -216,9 +235,12 @@ function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: bool
             fade: 0.02,
             resolutionScale: 0.75,
           });
-          composer.addPass(normalPass);
         } catch (err) {
           console.warn('[realism] SSAO init failed; continuing with bloom only', err);
+          if (normalPass) {
+            composer.removePass(normalPass);
+            normalPass.dispose();
+          }
           ssao = null;
         }
       }
@@ -247,6 +269,10 @@ function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: bool
       composer.setSize(size.width, size.height);
       composerRef.current = composer;
       gl.toneMapping = THREE.NoToneMapping;
+      // Under `frameloop="demand"` nothing else asks for a frame after a rebuild, so the
+      // brand-new composer would sit unused and the canvas would hold the previous —
+      // now stale — image until the camera happened to move.
+      invalidate();
     } catch (err) {
       console.warn('[realism] post-processing init failed', err);
       composer?.dispose();
@@ -259,16 +285,48 @@ function PostEffects({ quality, photoMode }: { quality: Quality; photoMode: bool
       gl.toneMapping = prevTone;
       composer?.dispose();
       composerRef.current = null;
+      // The next paint has to come from somewhere: with the composer gone, the fallback
+      // in the frame callback below is what draws, and in demand mode it needs asking.
+      invalidate();
     };
+    // `multisampling` is deliberately absent: it is applied by the effect below without
+    // a rebuild. Including it here would reinstate the low <-> medium teardown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, quality, photoMode]);
+  }, [gl, scene, camera, wantsSsao, photoMode]);
+
+  // MSAA in place. The composer exposes a setter that swaps the sample count on its
+  // buffers, so a low <-> medium move costs two buffer reallocations rather than a whole
+  // new pass chain — and never leaves the canvas without a renderer mid-change.
+  useEffect(() => {
+    if (!composerRef.current) return;
+    composerRef.current.multisampling = multisampling;
+    invalidate();
+  }, [multisampling, invalidate]);
 
   useEffect(() => {
     composerRef.current?.setSize(size.width, size.height);
-  }, [size.width, size.height]);
+    invalidate();
+  }, [size.width, size.height, invalidate]);
 
+  /**
+   * The only thing drawing the scene while this component is mounted.
+   *
+   * R3F stops rendering the moment any `useFrame` subscribes with a priority above zero
+   * — its loop reads `if (!state.internal.priority) state.gl.render(...)`. This hook is
+   * registered unconditionally, so from mount onward nothing else will paint.
+   *
+   * Hence the fallback. `composerRef.current` is null in two situations that used to
+   * black the canvas out completely: while a quality change is tearing the composer down
+   * and building a new one — which the adaptive governor triggers on its own, mid-session
+   * — and permanently, if construction threw on a driver that dislikes one of the passes.
+   * In both cases the old code rendered nothing at all while still holding the render
+   * loop hostage. Falling back to a plain render costs one line and turns a broken frame
+   * into an un-post-processed one.
+   */
   useFrame((_, delta) => {
-    composerRef.current?.render(delta);
+    const composer = composerRef.current;
+    if (composer) composer.render(delta);
+    else gl.render(scene, camera);
   }, 1);
 
   return null;
