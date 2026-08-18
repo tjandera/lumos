@@ -186,6 +186,20 @@ function SunAnimator({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+/**
+ * Sample directions for ambient-sky visibility: straight up plus four directions tilted
+ * 45° toward each horizontal axis, so a window on any wall (not just a skylight) can let
+ * a cell see out. Deliberately independent of the sun's current position — ambient sky
+ * light isn't the direct beam, it comes from the whole sky dome.
+ */
+const SKY_SAMPLE_DIRS = [
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(1, 1, 0).normalize(),
+  new THREE.Vector3(-1, 1, 0).normalize(),
+  new THREE.Vector3(0, 1, 1).normalize(),
+  new THREE.Vector3(0, 1, -1).normalize(),
+];
+
 /** Exposure 0 (shade) → 1 (full sun) mapped blue → green → red. */
 function heatColor(e: number): [number, number, number] {
   const c = new THREE.Color();
@@ -316,14 +330,25 @@ function LuxStudy({
       for (let ix = 0; ix < N; ix++) {
         const wx = bounds.minX + ((ix + 0.5) / N) * spanX;
         const wz = bounds.minZ + ((iz + 0.5) / N) * spanZ;
+        origin.set(wx, 0.05, wz);
         let sunLit = false;
         if (sun.y > 0.02) {
-          origin.set(wx, 0.05, wz);
           ray.set(origin, sunDir);
           sunLit = ray.intersectObjects(walls, true).length === 0;
         }
-        const total = illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: Math.max(0, sun.y), sunLit, lamps, skyLux });
-        baselineSum += illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: 0, sunLit: false, lamps, skyLux });
+        // The direct beam is already gated by `sunLit`, but the ambient sky term used to
+        // be added flat everywhere regardless of walls or windows — it drowned out the
+        // direct-beam signal on the color scale for most of the day, since it alone
+        // could exceed the normalization ceiling. Scale it by how much of the sky this
+        // cell can actually see through an opening.
+        let skyOpen = 0;
+        for (const dir of SKY_SAMPLE_DIRS) {
+          ray.set(origin, dir);
+          if (ray.intersectObjects(walls, true).length === 0) skyOpen++;
+        }
+        const cellSkyLux = skyLux * (skyOpen / SKY_SAMPLE_DIRS.length);
+        const total = illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: Math.max(0, sun.y), sunLit, lamps, skyLux: cellSkyLux });
+        baselineSum += illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: 0, sunLit: false, lamps, skyLux: cellSkyLux });
         const e = Math.min(1, total / 1200);
         const [r, g, b] = heatColor(e);
         const idx = (iz * N + ix) * 4;
