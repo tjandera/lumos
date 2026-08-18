@@ -208,25 +208,18 @@ function heatColor(e: number): [number, number, number] {
 }
 
 /**
- * On-demand floor heatmap: for a grid of floor cells, raycast toward the sun across the
- * day's daytime samples and colour each cell by the fraction that reach direct sun
- * (rays that escape through a window/door or over the walls). Occludes on walls.
+ * On-demand floor heatmap: for a grid of floor cells, raycast toward the sun's *current*
+ * position and colour each cell by whether the direct beam reaches it right now (a ray
+ * that escapes through a window/door or over the walls). Tracks the live sun — time of
+ * day, manual azimuth/elevation, location and building orientation all flow through the
+ * same `sun` vector `LuxStudy` uses, so this updates the moment any of them changes,
+ * rather than showing a fixed snapshot from whenever it first mounted.
  */
 function SolarStudy({
-  lat,
-  lng,
-  offset,
-  year,
-  month,
-  day,
+  sun,
   bounds,
 }: {
-  lat: number;
-  lng: number;
-  offset: number;
-  year: number;
-  month: number;
-  day: number;
+  sun: { x: number; y: number; z: number };
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }) {
   const scene = useThree((s) => s.scene);
@@ -238,13 +231,12 @@ function SolarStudy({
     scene.traverse((o) => {
       if (o.userData && o.userData.blocksLight) walls.push(o);
     });
-    const samples = sunPath(lat, lng, new Date(year, month, day), offset, 30).filter((p) => p.y > 0.06);
     const N = 28;
     const data = new Uint8Array(N * N * 4);
     const ray = new THREE.Raycaster();
     ray.far = 80;
+    const sunDir = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
     const origin = new THREE.Vector3();
-    const dir = new THREE.Vector3();
     const spanX = bounds.maxX - bounds.minX;
     const spanZ = bounds.maxZ - bounds.minZ;
     for (let iz = 0; iz < N; iz++) {
@@ -255,14 +247,12 @@ function SolarStudy({
         // from maxZ downward keeps the value written to each row the value actually
         // displayed there, instead of mirroring the whole map front-to-back.
         const wz = bounds.maxZ - ((iz + 0.5) / N) * spanZ;
-        let lit = 0;
-        for (const s of samples) {
+        let e = 0;
+        if (sun.y > 0.02) {
           origin.set(wx, 0.05, wz);
-          dir.set(s.x, s.y, s.z).normalize();
-          ray.set(origin, dir);
-          if (ray.intersectObjects(walls, true).length === 0) lit++;
+          ray.set(origin, sunDir);
+          e = ray.intersectObjects(walls, true).length === 0 ? 1 : 0;
         }
-        const e = samples.length ? lit / samples.length : 0;
         const [r, g, b] = heatColor(e);
         const idx = (iz * N + ix) * 4;
         data[idx] = r;
@@ -278,7 +268,7 @@ function SolarStudy({
     setTex(t);
     invalidate();
     return () => t.dispose();
-  }, [scene, lat, lng, offset, year, month, day, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, invalidate]);
+  }, [scene, sun.x, sun.y, sun.z, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, invalidate]);
 
   if (!tex) return null;
   return (
@@ -431,7 +421,6 @@ export function Scene3D({ active }: { active: boolean }) {
     if (xs.length === 0) return { minX: -3, maxX: 3, minZ: -3, maxZ: 3 };
     return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
   }, [doc.rooms]);
-  const studyDate = useMemo(() => new Date(doc.view.timeOfDay), [doc.view.timeOfDay]);
 
   const sun = useMemo(() => {
     if (sunMode === 'manual') return sunFromAngles(sunAzimuthDeg, sunElevationDeg);
@@ -669,17 +658,7 @@ export function Scene3D({ active }: { active: boolean }) {
           <SeasonLine pts={seasons.winter} color="#93c5fd" />
         </>
       )}
-      {heatmapOn && (
-        <SolarStudy
-          lat={doc.site.lat}
-          lng={doc.site.lng}
-          offset={doc.site.trueNorthOffsetDeg}
-          year={studyDate.getFullYear()}
-          month={studyDate.getMonth()}
-          day={studyDate.getDate()}
-          bounds={studyBounds}
-        />
-      )}
+      {heatmapOn && <SolarStudy sun={sun} bounds={studyBounds} />}
       {luxOn && (
         <LuxStudy
           sun={sun}
