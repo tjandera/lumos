@@ -207,6 +207,47 @@ function heatColor(e: number): [number, number, number] {
   return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
 }
 
+/** Cells below this sit in the blue end of the scale — the "cold" zone a boundary line
+ *  gets drawn around, so the edge of the lit area reads as a line instead of a blur. */
+const COLD_THRESHOLD = 1 / 3;
+const OUTLINE_RGB: [number, number, number] = [245, 245, 240];
+
+/** Turns a flat, row-major grid of 0–1 exposure values into an RGBA heatmap texture,
+ *  with a solid outline traced wherever a cell's "cold" state differs from a neighbour's. */
+function paintHeatmapTexture(N: number, e: Float32Array): THREE.DataTexture {
+  const data = new Uint8Array(N * N * 4);
+  const cold = (iz: number, ix: number) => e[iz * N + ix] < COLD_THRESHOLD;
+  for (let iz = 0; iz < N; iz++) {
+    for (let ix = 0; ix < N; ix++) {
+      const idx = (iz * N + ix) * 4;
+      const isCold = cold(iz, ix);
+      const onBoundary =
+        (ix > 0 && cold(iz, ix - 1) !== isCold) ||
+        (ix < N - 1 && cold(iz, ix + 1) !== isCold) ||
+        (iz > 0 && cold(iz - 1, ix) !== isCold) ||
+        (iz < N - 1 && cold(iz + 1, ix) !== isCold);
+      if (onBoundary) {
+        data[idx] = OUTLINE_RGB[0];
+        data[idx + 1] = OUTLINE_RGB[1];
+        data[idx + 2] = OUTLINE_RGB[2];
+        data[idx + 3] = 255;
+      } else {
+        const cell = e[iz * N + ix];
+        const [r, g, b] = heatColor(cell);
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = Math.round(60 + cell * 170);
+      }
+    }
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
 /**
  * On-demand floor heatmap: for a grid of floor cells, raycast toward the sun's *current*
  * position and colour each cell by whether the direct beam reaches it right now (a ray
@@ -232,7 +273,7 @@ function SolarStudy({
       if (o.userData && o.userData.blocksLight) walls.push(o);
     });
     const N = 28;
-    const data = new Uint8Array(N * N * 4);
+    const eGrid = new Float32Array(N * N);
     const ray = new THREE.Raycaster();
     ray.far = 80;
     const sunDir = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
@@ -253,18 +294,10 @@ function SolarStudy({
           ray.set(origin, sunDir);
           e = ray.intersectObjects(walls, true).length === 0 ? 1 : 0;
         }
-        const [r, g, b] = heatColor(e);
-        const idx = (iz * N + ix) * 4;
-        data[idx] = r;
-        data[idx + 1] = g;
-        data[idx + 2] = b;
-        data[idx + 3] = Math.round(40 + e * 190);
+        eGrid[iz * N + ix] = e;
       }
     }
-    const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
-    t.magFilter = THREE.LinearFilter;
-    t.minFilter = THREE.LinearFilter;
-    t.needsUpdate = true;
+    const t = paintHeatmapTexture(N, eGrid);
     setTex(t);
     invalidate();
     return () => t.dispose();
@@ -312,7 +345,7 @@ function LuxStudy({
       if (o.userData && o.userData.blocksLight) walls.push(o);
     });
     const N = 28;
-    const data = new Uint8Array(N * N * 4);
+    const eGrid = new Float32Array(N * N);
     const ray = new THREE.Raycaster();
     ray.far = 80;
     const sunDir = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
@@ -344,19 +377,10 @@ function LuxStudy({
         const cellSkyLux = skyLux * (skyOpen / SKY_SAMPLE_DIRS.length);
         const total = illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: Math.max(0, sun.y), sunLit, lamps, skyLux: cellSkyLux });
         baselineSum += illuminanceAt({ x: wx, z: wz }, { sunAltitudeSin: 0, sunLit: false, lamps, skyLux: cellSkyLux });
-        const e = Math.min(1, total / 1200);
-        const [r, g, b] = heatColor(e);
-        const idx = (iz * N + ix) * 4;
-        data[idx] = r;
-        data[idx + 1] = g;
-        data[idx + 2] = b;
-        data[idx + 3] = Math.round(60 + e * 170);
+        eGrid[iz * N + ix] = Math.min(1, total / 1200);
       }
     }
-    const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
-    t.magFilter = THREE.LinearFilter;
-    t.minFilter = THREE.LinearFilter;
-    t.needsUpdate = true;
+    const t = paintHeatmapTexture(N, eGrid);
     setTex(t);
     onAvg(Math.round(baselineSum / (N * N)));
     invalidate();
