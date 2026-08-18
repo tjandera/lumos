@@ -207,38 +207,49 @@ function heatColor(e: number): [number, number, number] {
   return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
 }
 
-/** Cells below this sit in the blue end of the scale — the "cold" zone a boundary line
- *  gets drawn around, so the edge of the lit area reads as a line instead of a blur. */
-const COLD_THRESHOLD = 1 / 3;
-const OUTLINE_RGB: [number, number, number] = [245, 245, 240];
+/**
+ * Softens a grid with a small box blur before it's coloured, so the scale reads as a
+ * gradual fade from blue to red rather than a hard edge. Matters most for `SolarStudy`,
+ * whose raw values are a strict hit-or-miss per cell (does the beam reach here right
+ * now, yes or no) — without this, its lit/unlit boundary would jump straight from one
+ * end of the colour scale to the other with no dimming in between.
+ */
+function smoothGrid(N: number, src: Float32Array, radius = 1): Float32Array {
+  const out = new Float32Array(N * N);
+  for (let iz = 0; iz < N; iz++) {
+    for (let ix = 0; ix < N; ix++) {
+      let sum = 0;
+      let count = 0;
+      for (let dz = -radius; dz <= radius; dz++) {
+        const nz = iz + dz;
+        if (nz < 0 || nz >= N) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = ix + dx;
+          if (nx < 0 || nx >= N) continue;
+          sum += src[nz * N + nx];
+          count++;
+        }
+      }
+      out[iz * N + ix] = sum / count;
+    }
+  }
+  return out;
+}
 
-/** Turns a flat, row-major grid of 0–1 exposure values into an RGBA heatmap texture,
- *  with a solid outline traced wherever a cell's "cold" state differs from a neighbour's. */
-function paintHeatmapTexture(N: number, e: Float32Array): THREE.DataTexture {
+/** Turns a flat, row-major grid of 0–1 exposure values into a smoothly-faded RGBA
+ *  heatmap texture, blue at 0 through green to red at 1. */
+function paintHeatmapTexture(N: number, eRaw: Float32Array): THREE.DataTexture {
+  const e = smoothGrid(N, eRaw);
   const data = new Uint8Array(N * N * 4);
-  const cold = (iz: number, ix: number) => e[iz * N + ix] < COLD_THRESHOLD;
   for (let iz = 0; iz < N; iz++) {
     for (let ix = 0; ix < N; ix++) {
       const idx = (iz * N + ix) * 4;
-      const isCold = cold(iz, ix);
-      const onBoundary =
-        (ix > 0 && cold(iz, ix - 1) !== isCold) ||
-        (ix < N - 1 && cold(iz, ix + 1) !== isCold) ||
-        (iz > 0 && cold(iz - 1, ix) !== isCold) ||
-        (iz < N - 1 && cold(iz + 1, ix) !== isCold);
-      if (onBoundary) {
-        data[idx] = OUTLINE_RGB[0];
-        data[idx + 1] = OUTLINE_RGB[1];
-        data[idx + 2] = OUTLINE_RGB[2];
-        data[idx + 3] = 255;
-      } else {
-        const cell = e[iz * N + ix];
-        const [r, g, b] = heatColor(cell);
-        data[idx] = r;
-        data[idx + 1] = g;
-        data[idx + 2] = b;
-        data[idx + 3] = Math.round(60 + cell * 170);
-      }
+      const cell = e[iz * N + ix];
+      const [r, g, b] = heatColor(cell);
+      data[idx] = r;
+      data[idx + 1] = g;
+      data[idx + 2] = b;
+      data[idx + 3] = Math.round(60 + cell * 170);
     }
   }
   const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
