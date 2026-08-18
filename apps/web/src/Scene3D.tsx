@@ -216,6 +216,7 @@ function SolarStudy({
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }) {
   const scene = useThree((s) => s.scene);
+  const invalidate = useThree((s) => s.invalidate);
   const [tex, setTex] = useState<THREE.DataTexture | null>(null);
 
   useEffect(() => {
@@ -257,8 +258,9 @@ function SolarStudy({
     t.minFilter = THREE.LinearFilter;
     t.needsUpdate = true;
     setTex(t);
+    invalidate();
     return () => t.dispose();
-  }, [scene, lat, lng, offset, year, month, day, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ]);
+  }, [scene, lat, lng, offset, year, month, day, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, invalidate]);
 
   if (!tex) return null;
   return (
@@ -293,6 +295,7 @@ function LuxStudy({
   onAvg: (v: number) => void;
 }) {
   const scene = useThree((s) => s.scene);
+  const invalidate = useThree((s) => s.invalidate);
   const [tex, setTex] = useState<THREE.DataTexture | null>(null);
 
   useEffect(() => {
@@ -336,8 +339,9 @@ function LuxStudy({
     t.needsUpdate = true;
     setTex(t);
     onAvg(Math.round(baselineSum / (N * N)));
+    invalidate();
     return () => t.dispose();
-  }, [scene, sun.x, sun.y, sun.z, lampsKey, skyLux, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, onAvg]);
+  }, [scene, sun.x, sun.y, sun.z, lampsKey, skyLux, bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ, onAvg, invalidate]);
 
   if (!tex) return null;
   return (
