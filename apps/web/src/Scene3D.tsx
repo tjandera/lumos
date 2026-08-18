@@ -250,7 +250,11 @@ function SolarStudy({
     for (let iz = 0; iz < N; iz++) {
       for (let ix = 0; ix < N; ix++) {
         const wx = bounds.minX + ((ix + 0.5) / N) * spanX;
-        const wz = bounds.minZ + ((iz + 0.5) / N) * spanZ;
+        // Row iz of a DataTexture (flipY false, the default) lands at v=0, which this
+        // mesh's -90°-about-X rotation places at world Z = maxZ, not minZ — sampling
+        // from maxZ downward keeps the value written to each row the value actually
+        // displayed there, instead of mirroring the whole map front-to-back.
+        const wz = bounds.maxZ - ((iz + 0.5) / N) * spanZ;
         let lit = 0;
         for (const s of samples) {
           origin.set(wx, 0.05, wz);
@@ -329,7 +333,8 @@ function LuxStudy({
     for (let iz = 0; iz < N; iz++) {
       for (let ix = 0; ix < N; ix++) {
         const wx = bounds.minX + ((ix + 0.5) / N) * spanX;
-        const wz = bounds.minZ + ((iz + 0.5) / N) * spanZ;
+        // Same front-to-back correction as SolarStudy above — see its comment.
+        const wz = bounds.maxZ - ((iz + 0.5) / N) * spanZ;
         origin.set(wx, 0.05, wz);
         let sunLit = false;
         if (sun.y > 0.02) {
